@@ -77,6 +77,9 @@ For automation/non-interactive runs:
 ./setup.sh --yes
 ```
 
+In `--yes` mode, setup attempts `op signin` automatically if the 1Password CLI
+session is missing.
+
 If you prefer interactive setup prompts:
 
 ```bash
