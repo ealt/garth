@@ -1,0 +1,213 @@
+# garth
+
+> Walled workspaces for autonomous agents.
+
+`garth` is a secure multi-project workspace orchestrator for autonomous coding
+agents.
+
+It launches a Zellij-based project session, runs agents in Docker (or host mode
+when explicitly requested), mints short-lived GitHub App installation tokens
+through 1Password, and keeps Git auth refreshed without restarting containers.
+
+## Why garth
+
+Running AI coding agents with your full shell environment means they inherit
+everything on your machine: SSH keys, GitHub CLI auth, cloud credentials, and
+local secrets. `garth` limits blast radius by giving each agent only what it
+needs:
+
+- a mounted worktree
+- a short-lived GitHub App token
+- an agent API key
+
+By default, agents do not get your home directory, SSH agent, or Docker socket.
+
+## Features
+
+- Isolated agent runtime (`docker`) with strict hardening defaults
+- GitHub App auth with token rotation from 1Password-managed secrets
+- Zellij session layout with one shell pane plus one pane per agent
+- Git worktree workflow for parallel branch/task execution
+- Best-effort GUI launch helpers (Cursor, Chrome profile, AeroSpace)
+- Config-driven safety defaults (`safe` vs `permissive`) and retry policy
+
+## Layout
+
+```text
+garth/
+  bin/garth
+  lib/
+  docker/Dockerfile
+  config/garth.example.toml
+  templates/aerospace.example.toml
+```
+
+## Prerequisites
+
+Required:
+
+- `git`
+- `python3`
+- `op` (1Password CLI, signed in)
+- `zellij`
+- `docker` (for sandbox mode)
+
+Optional:
+
+- `Cursor` (macOS app launcher)
+- `Google Chrome` (profile-per-project launcher)
+- `aerospace` (workspace movement)
+
+## Setup
+
+```bash
+garth setup
+```
+
+This will:
+
+- create `~/.config/garth/config.toml` from the example
+- optionally switch safety default to `permissive`
+- optionally guide you through setting `[github_app]` 1Password refs
+- validate config
+- symlink `garth` into `~/.local/bin/garth`
+
+## GitHub App Setup
+
+The example config uses placeholder `op://...` refs. You must replace them with
+real refs from your vault.
+
+See the dedicated setup guide:
+
+- [`docs/github-app-setup.md`](docs/github-app-setup.md)
+
+## Config
+
+Default config path:
+
+`~/.config/garth/config.toml`
+
+Key sections:
+
+- `[defaults]`: selected agents, sandbox mode, network mode, safety mode
+- `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
+- `[github_app]`: 1Password refs and installation selection strategy
+- `[agents.<name>]`: command + safe/permissive args + API key ref
+
+Validation is strict for known fields and warning-only for unknown fields.
+
+## Usage
+
+### Boot a workspace
+
+```bash
+garth boot .
+```
+
+Common options:
+
+- `--agents claude,codex`
+- `--sandbox docker|none`
+- `--network bridge|none`
+- `--safety safe|permissive`
+- `--workspace 3`
+
+### Create and boot a worktree
+
+```bash
+garth worktree . feature/new-flow --from origin/main
+```
+
+### Run one agent directly
+
+```bash
+garth agent . codex --sandbox docker
+```
+
+### Mint a token
+
+```bash
+garth token .
+```
+
+### Session control
+
+```bash
+garth status
+garth status --json
+garth stop garth-myrepo-feature__x
+garth stop --repo .
+garth stop --all --yes
+```
+
+## Security Model
+
+- Secrets are not passed in process args or layout files.
+- Agent API keys go through short-lived `0600` env files.
+- GitHub token is mounted as a file (`/run/garth/github_token`) and rotated
+  atomically.
+- Container defaults:
+  - `--cap-drop=ALL`
+  - `--security-opt no-new-privileges:true`
+  - `--pids-limit=512`
+  - `--read-only`
+  - tmpfs mounts for writable transient paths
+
+## Platform Notes
+
+- macOS: full launch flow (Cursor/Chrome/AeroSpace)
+- non-macOS: core orchestration still runs; unsupported GUI steps are skipped
+  with warnings
+
+## Troubleshooting
+
+- `Config not found`: run `garth setup`
+- `1Password CLI is not signed in`: run `op signin`
+- `"isn't a vault in this account"`: update `op://...` refs in
+  `~/.config/garth/config.toml` to your actual vault/item/field names
+- `Unsupported remote URL`: ensure repo uses a GitHub remote URL
+- `Session already exists`: run `garth stop <session>` first
+
+## Branding
+
+### Name
+
+**garth** comes from Old Norse *garðr* ("enclosure"), the root of *garden*,
+*yard*, and *guard*. A garth is the protected courtyard within walls: an
+enclosed workspace where controlled work happens.
+
+In monastic architecture, the garth was the cloister garden: a calm, ordered
+space surrounded by the structure that protects it.
+
+### Short Description
+
+A CLI that boots secure, Docker-sandboxed workspaces for AI coding agents with
+scoped credentials, git worktrees, and a full dev environment in one command.
+
+### Naming Process
+
+Source territory: **The controlled environment where work happens**, drawn from
+architecture, metallurgy, and nautical compartmentalization.
+
+Candidates considered and rejected:
+
+| Name | Why rejected |
+| ---- | ------------ |
+| hearth | Strong but less distinctive; common fireplace association |
+| bosh | Cloud Foundry BOSH conflict (major DevOps tool, Homebrew formula) |
+| keep | keephq conflict (11k GitHub stars, acquired by Elastic) |
+| crucible | Atlassian Crucible conflict (long-standing brand) |
+| bailey | Clean availability but less resonant than `garth` |
+| kiln | Clean but lacked the enclosure/protection dimension |
+| motte | Clean but the metaphor was indirect |
+| cope | Clean but the casting-mold metaphor was too niche |
+
+### Availability
+
+| Registry | Status |
+| -------- | ------ |
+| Homebrew | Available |
+| npm | Available |
+| PyPI | Taken (Garmin SSO library; not a conflict for this bash CLI) |
+| Crates.io | Available |
+| "garth cli" on Google | Clean |

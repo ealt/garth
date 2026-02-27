@@ -1,0 +1,1153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE_PATH" ]]; do
+  LINK_DIR="$(cd -P "$(dirname "$SOURCE_PATH")" && pwd)"
+  SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+  [[ "$SOURCE_PATH" != /* ]] && SOURCE_PATH="$LINK_DIR/$SOURCE_PATH"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE_PATH")" && pwd)"
+GARTH_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+source "$GARTH_ROOT/lib/common.sh"
+source "$GARTH_ROOT/lib/git.sh"
+source "$GARTH_ROOT/lib/secrets.sh"
+source "$GARTH_ROOT/lib/github-app.sh"
+source "$GARTH_ROOT/lib/container.sh"
+source "$GARTH_ROOT/lib/zellij.sh"
+source "$GARTH_ROOT/lib/workspace.sh"
+
+garth_install_cleanup_trap
+
+GARTH_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/garth"
+GARTH_CONFIG_PATH="${GARTH_CONFIG_PATH:-$HOME/.config/garth/config.toml}"
+GARTH_BIN_PATH="$SCRIPT_DIR/garth"
+
+usage() {
+  cat << 'USAGE'
+Usage: garth <command> [options]
+
+Commands:
+  boot <dir>                      Launch workspace (zellij + agents + tools)
+  worktree <repo-dir> <branch>   Create worktree, then boot
+  agent <dir> <name>             Run one agent in docker or host mode
+  token <dir>                    Mint a GitHub App installation token
+  status                          Show active garth sessions
+  stop <session>|--repo <dir>|--all
+                                  Stop sessions and containers
+  setup                           First-time setup helper
+
+Run 'garth <command> --help' for command-specific options.
+USAGE
+}
+
+ensure_state_root() {
+  mkdir -p "$GARTH_STATE_ROOT/sessions"
+  chmod 700 "$GARTH_STATE_ROOT" "$GARTH_STATE_ROOT/sessions"
+}
+
+config_env() {
+  "$GARTH_ROOT/lib/config-parser.py" env "$GARTH_CONFIG_PATH"
+}
+
+load_config() {
+  [[ -f "$GARTH_CONFIG_PATH" ]] || garth_die "Config not found: $GARTH_CONFIG_PATH" 1
+  eval "$(config_env)"
+}
+
+agent_exists() {
+  local agent="$1"
+  local key
+  key=$(garth_agent_key "$agent")
+  local var="GARTH_AGENT_${key}_BASE_COMMAND"
+  [[ -n "${!var:-}" ]]
+}
+
+csv_to_array() {
+  local csv="$1"
+  if [[ -z "$csv" ]]; then
+    return 0
+  fi
+  IFS=',' read -r -a _GARTH_ARRAY_OUT <<< "$csv"
+}
+
+resolve_agents() {
+  local requested_csv="$1"
+  local csv="$requested_csv"
+  if [[ -z "$csv" ]]; then
+    csv="$GARTH_DEFAULTS_AGENTS_CSV"
+  fi
+
+  csv_to_array "$csv"
+  GARTH_SELECTED_AGENTS=("${_GARTH_ARRAY_OUT[@]:-}")
+  [[ ${#GARTH_SELECTED_AGENTS[@]} -gt 0 ]] || garth_die "No agents selected" 1
+
+  local agent
+  for agent in "${GARTH_SELECTED_AGENTS[@]}"; do
+    agent="${agent// /}"
+    [[ -n "$agent" ]] || continue
+    agent_exists "$agent" || garth_die "Unknown agent in selection: $agent" 1
+  done
+}
+
+session_dir_for() {
+  local session="$1"
+  echo "$GARTH_STATE_ROOT/sessions/$session"
+}
+
+write_state_value() {
+  local session_dir="$1"
+  local key="$2"
+  local value="$3"
+  printf '%s\n' "$value" > "$session_dir/$key"
+}
+
+read_state_value() {
+  local session_dir="$1"
+  local key="$2"
+  if [[ -f "$session_dir/$key" ]]; then
+    cat "$session_dir/$key"
+  fi
+}
+
+mint_token_for_repo() {
+  local repo_root="$1"
+  local remote_url owner_repo
+
+  remote_url=$(garth_git_remote_url "$repo_root" "origin")
+  owner_repo=$(garth_git_owner_repo_from_remote "$remote_url") || \
+    garth_die "Unsupported remote URL format (expected GitHub): $remote_url" 1
+
+  local minted
+  minted=$(garth_github_mint_installation_token "$owner_repo") || \
+    garth_die "Failed to mint GitHub token. Check 1Password sign-in and GitHub App config." 3
+
+  local token expires_at installation_id
+  IFS=$'\t' read -r token expires_at installation_id <<< "$minted"
+  [[ -n "$token" && -n "$expires_at" ]] || garth_die "Failed to mint GitHub token" 3
+
+  local expires_epoch
+  expires_epoch=$(garth_iso8601_to_epoch "$expires_at")
+
+  printf '%s\t%s\t%s\t%s\t%s\n' "$token" "$expires_at" "$expires_epoch" "$installation_id" "$owner_repo"
+}
+
+compute_profile_name() {
+  local repo_name="$1"
+  local branch="$2"
+  local slug
+  slug=$(garth_slugify_branch "$branch")
+  echo "${repo_name}-${slug}"
+}
+
+sleep_with_session_guard() {
+  local seconds="$1"
+  local session_dir="$2"
+  local i
+  for ((i = 0; i < seconds; i++)); do
+    [[ -f "$session_dir/active" ]] || return 1
+    sleep 1
+  done
+  return 0
+}
+
+cmd_boot() {
+  local dir=""
+  local agents_csv=""
+  local network=""
+  local sandbox=""
+  local workspace=""
+  local safety_mode=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --agents)
+        agents_csv="$2"
+        shift 2
+        ;;
+      --network)
+        network="$2"
+        shift 2
+        ;;
+      --sandbox)
+        sandbox="$2"
+        shift 2
+        ;;
+      --no-sandbox)
+        sandbox="none"
+        shift
+        ;;
+      --workspace)
+        workspace="$2"
+        shift 2
+        ;;
+      --safety)
+        safety_mode="$2"
+        shift 2
+        ;;
+      --dry-run)
+        GARTH_DRY_RUN=true
+        shift
+        ;;
+      --yes|-y)
+        GARTH_YES=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth boot <dir> [options]
+
+Options:
+  --agents <a,b>              Comma-separated agents
+  --sandbox docker|none       Runtime sandbox mode
+  --no-sandbox                Alias for --sandbox none
+  --network bridge|none       Docker network mode
+  --workspace <N>             Move windows to AeroSpace workspace N
+  --safety safe|permissive    Agent argument preset
+  --dry-run                   Print commands without executing
+  --yes, -y                   Auto-confirm prompts
+HELP
+        return 0
+        ;;
+      -* )
+        garth_die "Unknown option for boot: $1" 1
+        ;;
+      *)
+        if [[ -z "$dir" ]]; then
+          dir="$1"
+          shift
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        ;;
+    esac
+  done
+
+  [[ -n "$dir" ]] || garth_die "boot requires <dir>" 1
+
+  load_config
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    ensure_state_root
+  fi
+
+  sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
+  network="${network:-$GARTH_DEFAULTS_NETWORK}"
+  safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
+
+  [[ "$sandbox" == "docker" || "$sandbox" == "none" ]] || garth_die "Invalid sandbox mode: $sandbox" 1
+  [[ "$network" == "bridge" || "$network" == "none" ]] || garth_die "Invalid network mode: $network" 1
+  [[ "$safety_mode" == "safe" || "$safety_mode" == "permissive" ]] || garth_die "Invalid safety mode: $safety_mode" 1
+
+  resolve_agents "$agents_csv"
+
+  if [[ "$GARTH_DRY_RUN" != "true" && "$sandbox" == "docker" ]]; then
+    garth_require_cmd docker
+  fi
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    garth_require_cmd zellij
+  fi
+
+  local abs_dir repo_root branch repo_name session session_dir
+  abs_dir=$(garth_abs_path "$dir")
+  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
+  branch=$(garth_git_current_branch "$repo_root")
+  repo_name=$(garth_git_repo_name "$repo_root")
+  session=$(garth_git_session_name "$repo_name" "$branch")
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    session_dir=$(garth_make_temp_dir)
+  else
+    session_dir=$(session_dir_for "$session")
+
+    if [[ -d "$session_dir" ]]; then
+      if [[ -f "$session_dir/active" ]]; then
+        if garth_zellij_list_sessions | grep -qx "$session"; then
+          garth_die "Session already exists: $session (use 'garth stop $session' first)" 1
+        fi
+        garth_log_warn "Found stale active state for $session; cleaning it up"
+        stop_session "$session"
+      else
+        garth_log_warn "Found stale session directory for $session; removing it"
+        rm -rf "$session_dir"
+      fi
+    fi
+
+    mkdir -p "$session_dir"
+    chmod 700 "$session_dir"
+  fi
+
+  local token expires_at expires_epoch installation_id owner_repo
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    owner_repo=$(garth_git_owner_repo_from_remote "$(garth_git_remote_url "$repo_root" origin)") || \
+      garth_die "Unsupported remote URL format (expected GitHub)" 1
+    token="GARTH_DRY_RUN_TOKEN"
+    expires_at="2099-01-01T00:00:00Z"
+    expires_epoch="4070908800"
+    installation_id="dry-run"
+  else
+    local minted
+    minted=$(mint_token_for_repo "$repo_root") || return 3
+    IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
+  fi
+
+  local token_file
+  token_file=$(garth_write_token_file "$session_dir" "$token")
+
+  local agent
+  for agent in "${GARTH_SELECTED_AGENTS[@]}"; do
+    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+      local api_key_env env_file
+      api_key_env=$(garth_agent_field "$agent" "API_KEY_ENV")
+      env_file="$session_dir/agent-${agent}.env"
+      umask 077
+      {
+        printf 'TERM=xterm-256color\n'
+        printf 'GARTH_GITHUB_TOKEN_FILE=/run/garth/github_token\n'
+        printf '%s=%s\n' "$api_key_env" "GARTH_DRY_RUN_API_KEY"
+      } > "$env_file"
+      chmod 600 "$env_file"
+    else
+      garth_prepare_agent_env_file "$session_dir" "$agent" >/dev/null || return 3
+    fi
+  done
+
+  local layout_file="$session_dir/layout.kdl"
+  garth_generate_zellij_layout "$layout_file" "$abs_dir" "$session" "$repo_root" "$session_dir" "$network" \
+    "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode" "$sandbox" "${GARTH_SELECTED_AGENTS[@]}"
+
+  local agents_csv_effective
+  agents_csv_effective=$(garth_join_by "," "${GARTH_SELECTED_AGENTS[@]}")
+
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    garth_log_info "[dry-run] skipping persistent session state writes"
+  else
+    write_state_value "$session_dir" "active" "1"
+    write_state_value "$session_dir" "repo_root" "$repo_root"
+    write_state_value "$session_dir" "worktree" "$abs_dir"
+    write_state_value "$session_dir" "branch" "$branch"
+    write_state_value "$session_dir" "owner_repo" "$owner_repo"
+    write_state_value "$session_dir" "agents_csv" "$agents_csv_effective"
+    write_state_value "$session_dir" "token_state" "ok"
+    write_state_value "$session_dir" "token_expires_at" "$expires_at"
+    write_state_value "$session_dir" "token_expires_epoch" "$expires_epoch"
+    write_state_value "$session_dir" "started_epoch" "$(garth_now_epoch)"
+    write_state_value "$session_dir" "sandbox" "$sandbox"
+    write_state_value "$session_dir" "network" "$network"
+    write_state_value "$session_dir" "safety_mode" "$safety_mode"
+    write_state_value "$session_dir" "installation_id" "$installation_id"
+    write_state_value "$session_dir" "token_file" "$token_file"
+
+    if [[ "$GARTH_TOKEN_REFRESH_ENABLED" == "true" ]]; then
+      "$GARTH_BIN_PATH" internal-refresh \
+        --repo-root "$repo_root" \
+        --session "$session" \
+        --session-dir "$session_dir" >/dev/null 2>&1 &
+      write_state_value "$session_dir" "refresher_pid" "$!"
+    fi
+  fi
+
+  local github_url
+  github_url=$(garth_git_https_url_from_remote "$(garth_git_remote_url "$repo_root" origin)")
+
+  local profile_name
+  profile_name=$(compute_profile_name "$repo_name" "$branch")
+
+  garth_launch_cursor "$abs_dir"
+  garth_launch_chrome_profile "$GARTH_CHROME_PROFILES_DIR" "$profile_name" "$github_url"
+  garth_move_windows_to_workspace "$workspace"
+
+  garth_log_info "Starting zellij session: $session"
+  garth_zellij_launch "$session" "$layout_file"
+
+  # If session no longer exists after detach/exit, clean stale session state.
+  if [[ "$GARTH_DRY_RUN" != "true" ]] && ! garth_zellij_list_sessions | grep -qx "$session"; then
+    "$GARTH_BIN_PATH" stop "$session" --yes >/dev/null 2>&1 || true
+  fi
+}
+
+cmd_worktree() {
+  local repo_dir=""
+  local branch=""
+  local from_ref="origin/main"
+  local forward=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from)
+        from_ref="$2"
+        shift 2
+        ;;
+      --dry-run|--yes|-y|--agents|--sandbox|--no-sandbox|--network|--workspace|--safety)
+        forward+=("$1")
+        if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
+          shift
+        else
+          forward+=("$2")
+          shift 2
+        fi
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth worktree <repo-dir> <branch> [--from <ref>] [boot flags...]
+HELP
+        return 0
+        ;;
+      -* )
+        garth_die "Unknown option for worktree: $1" 1
+        ;;
+      *)
+        if [[ -z "$repo_dir" ]]; then
+          repo_dir="$1"
+        elif [[ -z "$branch" ]]; then
+          branch="$1"
+        else
+          forward+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "$repo_dir" && -n "$branch" ]] || garth_die "worktree requires <repo-dir> <branch>" 1
+
+  local repo_root
+  repo_root=$(garth_git_repo_root "$repo_dir") || garth_die "Not inside a git repo: $repo_dir" 1
+
+  local wt_path
+  wt_path=$(garth_git_create_worktree "$repo_root" "$branch" "$from_ref")
+  garth_log_success "Created worktree: $wt_path"
+
+  "$GARTH_BIN_PATH" boot "$wt_path" "${forward[@]}"
+}
+
+cmd_agent() {
+  local dir=""
+  local agent=""
+  local sandbox=""
+  local network=""
+  local safety_mode=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sandbox)
+        sandbox="$2"
+        shift 2
+        ;;
+      --network)
+        network="$2"
+        shift 2
+        ;;
+      --safety)
+        safety_mode="$2"
+        shift 2
+        ;;
+      --dry-run)
+        GARTH_DRY_RUN=true
+        shift
+        ;;
+      --yes|-y)
+        GARTH_YES=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth agent <dir> <name> [--sandbox docker|none] [--network bridge|none] [--safety safe|permissive]
+HELP
+        return 0
+        ;;
+      -* )
+        garth_die "Unknown option for agent: $1" 1
+        ;;
+      *)
+        if [[ -z "$dir" ]]; then
+          dir="$1"
+        elif [[ -z "$agent" ]]; then
+          agent="$1"
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "$dir" && -n "$agent" ]] || garth_die "agent requires <dir> <name>" 1
+
+  load_config
+  sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
+  network="${network:-$GARTH_DEFAULTS_NETWORK}"
+  safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
+
+  agent_exists "$agent" || garth_die "Unknown agent: $agent" 1
+
+  local abs_dir repo_root branch repo_name session
+  abs_dir=$(garth_abs_path "$dir")
+  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
+  branch=$(garth_git_current_branch "$repo_root")
+  repo_name=$(garth_git_repo_name "$repo_root")
+  session="$(garth_git_session_name "$repo_name" "$branch")-adhoc"
+
+  local tmp_dir
+  tmp_dir=$(garth_make_temp_dir)
+
+  local minted token expires_at expires_epoch installation_id owner_repo
+  minted=$(mint_token_for_repo "$repo_root") || return 3
+  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
+  garth_write_token_file "$tmp_dir" "$token" >/dev/null
+  garth_prepare_agent_env_file "$tmp_dir" "$agent" >/dev/null || return 3
+
+  if [[ "$sandbox" == "none" ]]; then
+    local cmd
+    cmd=$(garth_agent_command_string "$agent" "$safety_mode")
+    local env_file="$tmp_dir/agent-${agent}.env"
+    garth_log_warn "Running without sandbox; agent has host access"
+    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+      echo "[dry-run] source $env_file && export GITHUB_TOKEN=... && $cmd"
+      return 0
+    fi
+    (
+      cd "$abs_dir"
+      set -a
+      source "$env_file"
+      set +a
+      export GITHUB_TOKEN
+      GITHUB_TOKEN=$(cat "$tmp_dir/github_token")
+      bash -lc "$cmd"
+    )
+    return 0
+  fi
+
+  garth_require_cmd docker
+  local -a args=()
+  local arg
+  while IFS= read -r arg; do
+    args+=("$arg")
+  done < <(garth_container_args_lines "$session" "$repo_root" "$abs_dir" "$agent" "$tmp_dir/agent-${agent}.env" "$tmp_dir" "$network" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode")
+
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    echo "docker ${args[*]}"
+    return 0
+  fi
+
+  docker "${args[@]}"
+}
+
+cmd_token() {
+  local dir=""
+  local machine=false
+  local write_file=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --machine)
+        machine=true
+        shift
+        ;;
+      --write-file)
+        write_file="$2"
+        shift 2
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth token <dir> [--machine] [--write-file <path>]
+HELP
+        return 0
+        ;;
+      -* )
+        garth_die "Unknown option for token: $1" 1
+        ;;
+      *)
+        if [[ -z "$dir" ]]; then
+          dir="$1"
+          shift
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        ;;
+    esac
+  done
+
+  [[ -n "$dir" ]] || garth_die "token requires <dir>" 1
+
+  load_config
+
+  local abs_dir repo_root minted token expires_at expires_epoch installation_id owner_repo
+  abs_dir=$(garth_abs_path "$dir")
+  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
+  minted=$(mint_token_for_repo "$repo_root") || return 3
+  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
+
+  if [[ -n "$write_file" ]]; then
+    mkdir -p "$(dirname "$write_file")"
+    umask 077
+    printf '%s\n' "$token" > "$write_file"
+    chmod 600 "$write_file"
+  fi
+
+  if [[ "$machine" == "true" ]]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' "$token" "$expires_at" "$expires_epoch" "$installation_id" "$owner_repo"
+  else
+    printf '%s\n' "$token"
+  fi
+}
+
+human_uptime() {
+  local seconds="$1"
+  if ((seconds < 60)); then
+    echo "${seconds}s"
+  elif ((seconds < 3600)); then
+    echo "$((seconds / 60))m"
+  else
+    echo "$((seconds / 3600))h"
+  fi
+}
+
+count_session_containers() {
+  local session="$1"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "0"
+    return 0
+  fi
+  docker ps -q --filter "label=garth.session=$session" | wc -l | tr -d ' '
+}
+
+cmd_status() {
+  local as_json=false
+  if [[ "${1:-}" == "--json" ]]; then
+    as_json=true
+  elif [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: garth status [--json]"
+    return 0
+  elif [[ $# -gt 0 ]]; then
+    garth_die "Unknown option for status: $1" 1
+  fi
+
+  ensure_state_root
+
+  local -a sessions=()
+  local dir
+  for dir in "$GARTH_STATE_ROOT"/sessions/*; do
+    [[ -d "$dir" ]] || continue
+    [[ -f "$dir/active" ]] || continue
+    sessions+=("$(basename "$dir")")
+  done
+
+  if [[ "$as_json" == "true" ]]; then
+    if [[ ${#sessions[@]} -eq 0 ]]; then
+      echo '{"sessions":[]}'
+      return 0
+    fi
+
+    local first=true
+    printf '{"sessions":['
+    local session
+    for session in "${sessions[@]}"; do
+      local session_dir="$GARTH_STATE_ROOT/sessions/$session"
+      local repo_root branch agents_csv token_state started_epoch
+      repo_root=$(read_state_value "$session_dir" "repo_root")
+      branch=$(read_state_value "$session_dir" "branch")
+      agents_csv=$(read_state_value "$session_dir" "agents_csv")
+      token_state=$(read_state_value "$session_dir" "token_state")
+      started_epoch=$(read_state_value "$session_dir" "started_epoch")
+      local now uptime
+      now=$(garth_now_epoch)
+      uptime=$((now - ${started_epoch:-$now}))
+      local containers
+      containers=$(count_session_containers "$session")
+
+      [[ "$first" == "true" ]] || printf ','
+      first=false
+      python3 - << 'PY' "$session" "$repo_root" "$branch" "$agents_csv" "$token_state" "$uptime" "$containers"
+import json
+import sys
+session, repo_root, branch, agents_csv, token_state, uptime, containers = sys.argv[1:]
+obj = {
+    "session": session,
+    "repo": repo_root,
+    "branch": branch,
+    "agents": [a for a in agents_csv.split(',') if a],
+    "containers": int(containers),
+    "token_state": token_state or "unknown",
+    "uptime_seconds": int(uptime),
+}
+print(json.dumps(obj), end="")
+PY
+    done
+    echo ']}'
+    return 0
+  fi
+
+  if [[ ${#sessions[@]} -eq 0 ]]; then
+    echo "No active garth sessions."
+    return 0
+  fi
+
+  printf '%-32s %-20s %-18s %-18s %-10s %-12s %-8s\n' \
+    "SESSION" "REPO" "BRANCH" "AGENTS" "CONTAINERS" "TOKEN" "UPTIME"
+
+  local session
+  for session in "${sessions[@]}"; do
+    local session_dir="$GARTH_STATE_ROOT/sessions/$session"
+    local repo_root branch agents_csv token_state started_epoch
+    repo_root=$(read_state_value "$session_dir" "repo_root")
+    branch=$(read_state_value "$session_dir" "branch")
+    agents_csv=$(read_state_value "$session_dir" "agents_csv")
+    token_state=$(read_state_value "$session_dir" "token_state")
+    started_epoch=$(read_state_value "$session_dir" "started_epoch")
+
+    local repo_short
+    repo_short=$(basename "$repo_root")
+    local now uptime containers
+    now=$(garth_now_epoch)
+    uptime=$(human_uptime $((now - ${started_epoch:-$now})))
+    containers=$(count_session_containers "$session")
+
+    printf '%-32s %-20s %-18s %-18s %-10s %-12s %-8s\n' \
+      "$session" "$repo_short" "$branch" "$agents_csv" "$containers" "${token_state:-unknown}" "$uptime"
+  done
+}
+
+stop_session() {
+  local session="$1"
+  local session_dir
+  session_dir=$(session_dir_for "$session")
+  [[ -d "$session_dir" ]] || return 0
+
+  rm -f "$session_dir/active" 2>/dev/null || true
+
+  local pid
+  pid=$(read_state_value "$session_dir" "refresher_pid")
+  if [[ -n "$pid" ]]; then
+    kill "$pid" >/dev/null 2>&1 || true
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    garth_stop_containers_for_session "$session"
+  fi
+
+  garth_zellij_kill_session "$session"
+
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    echo "[dry-run] rm -rf $session_dir"
+  else
+    rm -rf "$session_dir"
+  fi
+}
+
+cmd_stop() {
+  local target_session=""
+  local repo_dir=""
+  local stop_all=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        repo_dir="$2"
+        shift 2
+        ;;
+      --all)
+        stop_all=true
+        shift
+        ;;
+      --yes|-y)
+        GARTH_YES=true
+        shift
+        ;;
+      --dry-run)
+        GARTH_DRY_RUN=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth stop <session>|--repo <dir>|--all [--yes]
+HELP
+        return 0
+        ;;
+      -* )
+        garth_die "Unknown option for stop: $1" 1
+        ;;
+      *)
+        if [[ -z "$target_session" ]]; then
+          target_session="$1"
+          shift
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        ;;
+    esac
+  done
+
+  local modes=0
+  [[ -n "$target_session" ]] && modes=$((modes + 1))
+  [[ -n "$repo_dir" ]] && modes=$((modes + 1))
+  [[ "$stop_all" == "true" ]] && modes=$((modes + 1))
+  [[ "$modes" -eq 1 ]] || garth_die "Choose exactly one target: <session> or --repo or --all" 1
+
+  ensure_state_root
+
+  local -a targets=()
+  if [[ "$stop_all" == "true" ]]; then
+    if ! garth_ask_yn "Stop all garth sessions?"; then
+      garth_log_info "Aborted"
+      return 0
+    fi
+    local d
+    for d in "$GARTH_STATE_ROOT"/sessions/*; do
+      [[ -d "$d" ]] || continue
+      targets+=("$(basename "$d")")
+    done
+  elif [[ -n "$repo_dir" ]]; then
+    local repo_root
+    repo_root=$(garth_git_repo_root "$repo_dir") || garth_die "Not inside a git repo: $repo_dir" 1
+    local d
+    for d in "$GARTH_STATE_ROOT"/sessions/*; do
+      [[ -d "$d" ]] || continue
+      local sr
+      sr=$(read_state_value "$d" "repo_root")
+      if [[ "$sr" == "$repo_root" ]]; then
+        targets+=("$(basename "$d")")
+      fi
+    done
+  else
+    targets+=("$target_session")
+  fi
+
+  if [[ ${#targets[@]} -eq 0 ]]; then
+    garth_die "No matching sessions found" 5
+  fi
+
+  local session
+  for session in "${targets[@]}"; do
+    garth_log_info "Stopping session: $session"
+    stop_session "$session"
+  done
+}
+
+garth_sed_escape_replacement() {
+  printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'
+}
+
+garth_set_config_string_value() {
+  local key="$1"
+  local value="$2"
+  local escaped
+  escaped=$(garth_sed_escape_replacement "$value")
+  sed -i.bak "s|^${key} = \".*\"|${key} = \"${escaped}\"|" "$GARTH_CONFIG_PATH"
+  rm -f "$GARTH_CONFIG_PATH.bak"
+}
+
+garth_prompt_with_default() {
+  local prompt="$1"
+  local default="$2"
+  local answer=""
+  read -r -p "$prompt [$default]: " answer
+  if [[ -z "$answer" ]]; then
+    answer="$default"
+  fi
+  printf '%s' "$answer"
+}
+
+garth_first_vault_name() {
+  op vault list --format json 2>/dev/null | python3 - << 'PY'
+import json
+import sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if isinstance(data, list) and data:
+    first = data[0]
+    if isinstance(first, dict):
+        print(first.get("name", ""))
+PY
+}
+
+garth_list_vault_names() {
+  op vault list --format json 2>/dev/null | python3 - << 'PY'
+import json
+import sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+if not isinstance(data, list):
+    raise SystemExit(0)
+for item in data:
+    if isinstance(item, dict):
+        name = item.get("name")
+        if isinstance(name, str) and name:
+            print(f"  - {name}")
+PY
+}
+
+garth_validate_ref_readable() {
+  local ref="$1"
+  op read "$ref" >/dev/null 2>&1
+}
+
+garth_configure_github_app_refs() {
+  if ! command -v op >/dev/null 2>&1; then
+    garth_log_warn "Skipping GitHub App ref setup: op CLI not installed"
+    return 0
+  fi
+
+  if ! op whoami >/dev/null 2>&1; then
+    garth_log_warn "Skipping GitHub App ref setup: op CLI is not signed in"
+    garth_log_info "Run: eval \"\$(op signin)\" and then rerun 'garth setup'"
+    return 0
+  fi
+
+  if [[ "$GARTH_YES" == "true" ]]; then
+    garth_log_info "Non-interactive setup: skipped guided GitHub App ref prompts"
+    garth_log_info "Edit $GARTH_CONFIG_PATH [github_app] refs to match your 1Password vault/item"
+    return 0
+  fi
+
+  if ! garth_ask_yn "Configure GitHub App 1Password refs now?"; then
+    return 0
+  fi
+
+  garth_log_info "Available vaults:"
+  garth_list_vault_names || true
+
+  local default_vault
+  default_vault=$(garth_first_vault_name || true)
+  [[ -n "$default_vault" ]] || default_vault="Private"
+
+  local vault item app_field private_key_field installation_field
+  vault=$(garth_prompt_with_default "Vault name" "$default_vault")
+  item=$(garth_prompt_with_default "Item name" "GitHub App")
+  app_field=$(garth_prompt_with_default "App ID field label or id" "app-id")
+  private_key_field=$(garth_prompt_with_default "Private key field label or id" "private-key")
+  installation_field=$(garth_prompt_with_default "Installation ID field label or id" "installation-id")
+
+  local app_ref private_ref installation_ref
+  app_ref="op://${vault}/${item}/${app_field}"
+  private_ref="op://${vault}/${item}/${private_key_field}"
+  installation_ref="op://${vault}/${item}/${installation_field}"
+
+  garth_set_config_string_value "app_id_ref" "$app_ref"
+  garth_set_config_string_value "private_key_ref" "$private_ref"
+  garth_set_config_string_value "installation_id_ref" "$installation_ref"
+
+  local ok=true
+  if ! garth_validate_ref_readable "$app_ref"; then
+    garth_log_warn "Cannot read app_id_ref: $app_ref"
+    ok=false
+  fi
+  if ! garth_validate_ref_readable "$private_ref"; then
+    garth_log_warn "Cannot read private_key_ref: $private_ref"
+    ok=false
+  fi
+  if ! garth_validate_ref_readable "$installation_ref"; then
+    garth_log_warn "Cannot read installation_id_ref: $installation_ref"
+    ok=false
+  fi
+
+  if [[ "$ok" == "true" ]]; then
+    garth_log_success "Updated and validated [github_app] refs"
+  else
+    garth_log_warn "Saved refs but validation failed. Check vault/item/field names in $GARTH_CONFIG_PATH"
+  fi
+}
+
+cmd_setup() {
+  local non_interactive=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|-y)
+        GARTH_YES=true
+        non_interactive=true
+        shift
+        ;;
+      --help|-h)
+        echo "Usage: garth setup [--yes]"
+        return 0
+        ;;
+      *)
+        garth_die "Unknown option for setup: $1" 1
+        ;;
+    esac
+  done
+
+  garth_log_info "Checking prerequisites"
+  garth_require_cmd git
+  garth_require_cmd python3
+
+  local optional=(docker zellij op)
+  local cmd
+  for cmd in "${optional[@]}"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      garth_log_success "$cmd is installed"
+    else
+      garth_log_warn "$cmd is not installed"
+    fi
+  done
+
+  local config_dir
+  config_dir=$(dirname "$GARTH_CONFIG_PATH")
+  mkdir -p "$config_dir"
+
+  if [[ ! -f "$GARTH_CONFIG_PATH" ]]; then
+    cp "$GARTH_ROOT/config/garth.example.toml" "$GARTH_CONFIG_PATH"
+    garth_log_success "Created config: $GARTH_CONFIG_PATH"
+
+    if garth_ask_yn "Use permissive safety mode by default?"; then
+      sed -i.bak 's/^safety_mode = "safe"/safety_mode = "permissive"/' "$GARTH_CONFIG_PATH"
+      rm -f "$GARTH_CONFIG_PATH.bak"
+      garth_log_warn "Set defaults.safety_mode=permissive"
+    fi
+  else
+    garth_log_info "Config already exists: $GARTH_CONFIG_PATH"
+  fi
+
+  garth_configure_github_app_refs
+
+  if "$GARTH_ROOT/lib/config-parser.py" validate "$GARTH_CONFIG_PATH"; then
+    garth_log_success "Config validation passed"
+  else
+    garth_die "Config validation failed" 1
+  fi
+
+  local local_bin="$HOME/.local/bin"
+  mkdir -p "$local_bin"
+  ln -sf "$GARTH_BIN_PATH" "$local_bin/garth"
+  garth_log_success "Installed symlink: $local_bin/garth"
+
+  if [[ "$non_interactive" != "true" && -f "$GARTH_ROOT/docker/Dockerfile" ]]; then
+    if garth_ask_yn "Build default Docker images now (claude, codex)?"; then
+      load_config
+      garth_docker_build_agent_image "claude" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || true
+      garth_docker_build_agent_image "codex" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || true
+    fi
+  fi
+
+  garth_log_info "Credential checklist:"
+  garth_log_info "  1) Ensure [github_app] refs in $GARTH_CONFIG_PATH point to real vault/item fields"
+  garth_log_info "  2) Set API key refs under [agents.*] (Anthropic/OpenAI/Google as needed)"
+  garth_log_info "  3) Test with: garth token ."
+
+  garth_log_success "Setup complete"
+}
+
+cmd_internal_refresh() {
+  local repo_root=""
+  local session=""
+  local session_dir=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo-root)
+        repo_root="$2"
+        shift 2
+        ;;
+      --session)
+        session="$2"
+        shift 2
+        ;;
+      --session-dir)
+        session_dir="$2"
+        shift 2
+        ;;
+      *)
+        garth_die "Unknown option for internal-refresh: $1" 1
+        ;;
+    esac
+  done
+
+  [[ -n "$repo_root" && -n "$session" && -n "$session_dir" ]] || garth_die "internal-refresh requires --repo-root --session --session-dir" 1
+
+  load_config
+
+  local lead_seconds retry_window_seconds initial_interval_seconds max_interval_seconds
+  lead_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_LEAD_TIME")
+  retry_window_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_FAILURE_RETRY_WINDOW")
+  initial_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_INITIAL_INTERVAL")
+  max_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_MAX_INTERVAL")
+
+  while [[ -f "$session_dir/active" ]]; do
+    local now expires_epoch wait_seconds
+    now=$(garth_now_epoch)
+    expires_epoch=$(read_state_value "$session_dir" "token_expires_epoch")
+    if [[ -z "$expires_epoch" ]]; then
+      sleep_with_session_guard 5 "$session_dir" || break
+      continue
+    fi
+
+    wait_seconds=$((expires_epoch - now - lead_seconds))
+    if ((wait_seconds > 0)); then
+      sleep_with_session_guard "$wait_seconds" "$session_dir" || break
+    fi
+
+    local success=false
+    local attempt_started backoff
+    attempt_started=$(garth_now_epoch)
+    backoff="$initial_interval_seconds"
+
+    while [[ -f "$session_dir/active" ]]; do
+      local token_line
+      if token_line=$("$GARTH_BIN_PATH" token "$repo_root" --machine 2>/dev/null); then
+        local token expires_at refreshed_epoch installation_id owner_repo
+        IFS=$'\t' read -r token expires_at refreshed_epoch installation_id owner_repo <<< "$token_line"
+        garth_write_token_file "$session_dir" "$token" >/dev/null
+        write_state_value "$session_dir" "token_expires_at" "$expires_at"
+        write_state_value "$session_dir" "token_expires_epoch" "$refreshed_epoch"
+        write_state_value "$session_dir" "token_state" "ok"
+        success=true
+        break
+      fi
+
+      local elapsed
+      elapsed=$(( $(garth_now_epoch) - attempt_started ))
+
+      if ((retry_window_seconds == 0)); then
+        write_state_value "$session_dir" "token_state" "degraded"
+        break
+      fi
+
+      if ((retry_window_seconds != -1 && elapsed >= retry_window_seconds)); then
+        write_state_value "$session_dir" "token_state" "degraded"
+        break
+      fi
+
+      sleep_with_session_guard "$backoff" "$session_dir" || break
+
+      if [[ "$GARTH_TOKEN_REFRESH_RETRY_BACKOFF" == "exponential" ]]; then
+        backoff=$((backoff * 2))
+        if ((backoff > max_interval_seconds)); then
+          backoff="$max_interval_seconds"
+        fi
+      fi
+    done
+
+    if [[ "$success" != "true" ]]; then
+      sleep_with_session_guard "$max_interval_seconds" "$session_dir" || break
+    fi
+  done
+}
+
+main() {
+  local command="${1:-}"
+  if [[ -z "$command" ]]; then
+    usage
+    exit 1
+  fi
+  shift || true
+
+  case "$command" in
+    boot) cmd_boot "$@" ;;
+    worktree) cmd_worktree "$@" ;;
+    agent) cmd_agent "$@" ;;
+    token) cmd_token "$@" ;;
+    status) cmd_status "$@" ;;
+    stop) cmd_stop "$@" ;;
+    setup) cmd_setup "$@" ;;
+    internal-refresh) cmd_internal_refresh "$@" ;;
+    --help|-h|help) usage ;;
+    *)
+      garth_die "Unknown command: $command" 1
+      ;;
+  esac
+}
+
+main "$@"

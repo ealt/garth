@@ -1,0 +1,52 @@
+[defaults]
+agents = ["claude", "codex"]
+sandbox = "docker"
+network = "bridge"
+safety_mode = "safe"
+docker_image_prefix = "garth"
+
+[token_refresh]
+enabled = true
+lead_time = "15m"
+failure_retry_window = "10m"
+retry_backoff = "exponential"
+retry_initial_interval = "5s"
+retry_max_interval = "60s"
+
+[github_app]
+app_id_ref = "op://<VAULT>/GitHub App/app-id"
+private_key_ref = "op://<VAULT>/GitHub App/private-key"
+installation_strategy = "by_owner"
+installation_id_ref = ""
+installation_id_map = {}
+
+[chrome]
+profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
+
+[agents.claude]
+base_command = "claude"
+safe_args = []
+permissive_args = ["--dangerously-skip-permissions"]
+api_key_env = "ANTHROPIC_API_KEY"
+api_key_ref = "op://<VAULT>/Anthropic/api-key"
+
+[agents.codex]
+base_command = "codex exec"
+safe_args = []
+permissive_args = ["--dangerously-bypass-approvals-and-sandbox"]
+api_key_env = "OPENAI_API_KEY"
+api_key_ref = "op://<VAULT>/OpenAI/api-key"
+
+[agents.opencode]
+base_command = "opencode"
+safe_args = []
+permissive_args = []
+api_key_env = "OPENAI_API_KEY"
+api_key_ref = "op://<VAULT>/OpenAI/api-key"
+
+[agents.gemini]
+base_command = "gemini"
+safe_args = []
+permissive_args = ["--yolo"]
+api_key_env = "GOOGLE_API_KEY"
+api_key_ref = "op://<VAULT>/Google AI/api-key"
