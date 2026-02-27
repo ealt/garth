@@ -886,6 +886,32 @@ garth_validate_ref_readable() {
   op read "$ref" >/dev/null 2>&1
 }
 
+garth_ref_looks_configured() {
+  local ref="$1"
+  [[ -n "$ref" ]] || return 1
+  [[ "$ref" == op://* ]] || return 1
+  [[ "$ref" != *"<"* ]]
+}
+
+garth_github_app_refs_look_configured() {
+  garth_ref_looks_configured "${GARTH_GITHUB_APP_APP_ID_REF:-}" || return 1
+  garth_ref_looks_configured "${GARTH_GITHUB_APP_PRIVATE_KEY_REF:-}" || return 1
+
+  case "${GARTH_GITHUB_APP_INSTALLATION_STRATEGY:-by_owner}" in
+    single)
+      garth_ref_looks_configured "${GARTH_GITHUB_APP_INSTALLATION_ID_REF:-}" || return 1
+      ;;
+    static_map|by_owner)
+      :
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
 garth_prompt_op_signin() {
   if [[ "$GARTH_YES" == "true" ]]; then
     garth_log_info "1Password CLI is not signed in; attempting automatic 'op signin'"
@@ -927,6 +953,13 @@ garth_prompt_op_signin() {
 }
 
 garth_configure_github_app_refs() {
+  # Skip guided ref setup when config already contains non-placeholder op:// refs.
+  load_config
+  if garth_github_app_refs_look_configured; then
+    garth_log_info "GitHub App refs already configured in $GARTH_CONFIG_PATH; skipping guided setup"
+    return 0
+  fi
+
   if ! command -v op >/dev/null 2>&1; then
     garth_log_warn "Skipping GitHub App ref setup: op CLI not installed"
     return 0
@@ -1057,10 +1090,31 @@ cmd_setup() {
   garth_log_success "Installed symlink: $local_bin/garth"
 
   if [[ "$non_interactive" != "true" && -f "$GARTH_ROOT/docker/Dockerfile" ]]; then
-    if garth_ask_yn "Build default Docker images now (claude, codex)?"; then
+    if ! command -v docker >/dev/null 2>&1; then
+      garth_log_warn "Skipping Docker image build: docker is not installed"
+    else
       load_config
-      garth_docker_build_agent_image "claude" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || true
-      garth_docker_build_agent_image "codex" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || true
+      local image_prefix="$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX"
+      local -a missing_agents=()
+      local agent image_tag
+      for agent in claude codex; do
+        image_tag="${image_prefix}-${agent}:latest"
+        if ! docker image inspect "$image_tag" >/dev/null 2>&1; then
+          missing_agents+=("$agent")
+        fi
+      done
+
+      if [[ ${#missing_agents[@]} -eq 0 ]]; then
+        garth_log_info "Default Docker images already exist; skipping build"
+      else
+        local missing_csv
+        missing_csv=$(IFS=','; echo "${missing_agents[*]}")
+        if garth_ask_yn "Build missing default Docker image(s) now (${missing_csv})?"; then
+          for agent in "${missing_agents[@]}"; do
+            garth_docker_build_agent_image "$agent" "$image_prefix" || true
+          done
+        fi
+      fi
     fi
   fi
 

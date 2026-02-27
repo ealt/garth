@@ -70,6 +70,7 @@ This repo bootstrap script:
 - runs `bin/garth setup` (interactive by default)
 - creates `./config.toml` from `config.example.toml` (if missing)
 - validates repo-local config and installs `garth` in `~/.local/bin`
+- skips GitHub App ref prompts and Docker image build prompts when already done
 
 For automation/non-interactive runs:
 
