@@ -8,7 +8,7 @@ GARTH_SECRETS_SH_LOADED=1
 garth_require_op() {
   garth_require_cmd op
   if ! op whoami >/dev/null 2>&1; then
-    if [[ -t 0 && -t 1 ]]; then
+    if [[ -t 0 || -t 1 || -t 2 ]]; then
       garth_log_info "1Password CLI is not signed in; running 'eval \"\$(op signin)\"'"
       if eval "$(op signin)" && op whoami >/dev/null 2>&1; then
         garth_log_success "1Password CLI sign-in complete"

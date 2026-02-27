@@ -231,6 +231,8 @@ HELP
   load_config
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
     ensure_state_root
+    # Sign in once in the parent shell process before secret reads in command substitutions.
+    garth_require_op
   fi
 
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
@@ -476,6 +478,8 @@ HELP
   [[ -n "$dir" && -n "$agent" ]] || garth_die "agent requires <dir> <name>" 1
 
   load_config
+  # Sign in once in the parent shell process before secret reads in command substitutions.
+  garth_require_op
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
@@ -572,6 +576,8 @@ HELP
   [[ -n "$dir" ]] || garth_die "token requires <dir>" 1
 
   load_config
+  # Sign in once in the parent shell process before secret reads in command substitutions.
+  garth_require_op
 
   local abs_dir repo_root minted token expires_at expires_epoch installation_id owner_repo
   abs_dir=$(garth_abs_path "$dir")
