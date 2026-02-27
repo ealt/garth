@@ -156,6 +156,7 @@ garth token .
 ### Session control
 
 ```bash
+garth doctor --repo .
 garth status
 garth status --json
 garth stop garth-myrepo-feature__x
@@ -184,6 +185,7 @@ garth stop --all --yes
 
 ## Troubleshooting
 
+- `Auth/config check`: run `garth doctor --repo .`
 - `Config not found`: run `garth setup`
 - `1Password CLI is not signed in`: run `op signin`
 - `"isn't a vault in this account"`: update `op://...` refs in

@@ -34,6 +34,7 @@ Commands:
   worktree <repo-dir> <branch>   Create worktree, then boot
   agent <dir> <name>             Run one agent in docker or host mode
   token <dir>                    Mint a GitHub App installation token
+  doctor [--repo <dir>]          Diagnose local setup and auth health
   status                          Show active garth sessions
   stop <session>|--repo <dir>|--all
                                   Stop sessions and containers
@@ -1222,6 +1223,228 @@ cmd_internal_refresh() {
   done
 }
 
+doctor_try_op_signin() {
+  if op whoami >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    return 1
+  fi
+  garth_log_info "1Password CLI session missing; attempting 'eval \"\$(op signin)\"'"
+  eval "$(op signin)" >/dev/null 2>&1 || return 1
+  op whoami >/dev/null 2>&1
+}
+
+cmd_doctor() {
+  local repo_dir="."
+  local skip_token=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        repo_dir="$2"
+        shift 2
+        ;;
+      --skip-token)
+        skip_token=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth doctor [--repo <dir>] [--skip-token]
+
+Checks:
+  - required commands and optional tooling
+  - config presence and schema validation
+  - GitHub App ref shape + readability
+  - GitHub private key PEM validity
+  - optional token mint test for a target repo (default: .)
+  - default Docker image presence (claude/codex)
+HELP
+        return 0
+        ;;
+      *)
+        garth_die "Unknown option for doctor: $1" 1
+        ;;
+    esac
+  done
+
+  local failures=0
+  local warnings=0
+  local config_ok=false
+  local config_loaded=false
+  local op_available=false
+  local op_session=false
+
+  garth_log_info "Doctor checks starting"
+
+  local required_cmd
+  for required_cmd in git python3; do
+    if command -v "$required_cmd" >/dev/null 2>&1; then
+      garth_log_success "Required command found: $required_cmd"
+    else
+      garth_log_error "Missing required command: $required_cmd"
+      failures=$((failures + 1))
+    fi
+  done
+
+  local optional_cmd
+  for optional_cmd in op docker zellij; do
+    if command -v "$optional_cmd" >/dev/null 2>&1; then
+      garth_log_success "Optional command found: $optional_cmd"
+      [[ "$optional_cmd" == "op" ]] && op_available=true
+    else
+      garth_log_warn "Optional command missing: $optional_cmd"
+      warnings=$((warnings + 1))
+    fi
+  done
+
+  if [[ -f "$GARTH_CONFIG_PATH" ]]; then
+    garth_log_success "Config exists: $GARTH_CONFIG_PATH"
+    config_ok=true
+  else
+    garth_log_error "Config missing: $GARTH_CONFIG_PATH"
+    failures=$((failures + 1))
+  fi
+
+  if [[ "$config_ok" == "true" ]]; then
+    if "$GARTH_ROOT/lib/config-parser.py" validate "$GARTH_CONFIG_PATH" >/dev/null; then
+      garth_log_success "Config validation passed"
+    else
+      garth_log_error "Config validation failed"
+      failures=$((failures + 1))
+    fi
+
+    local env_export
+    if env_export=$(config_env 2>/dev/null); then
+      eval "$env_export"
+      config_loaded=true
+      garth_log_success "Config load passed"
+    else
+      garth_log_error "Config load failed"
+      failures=$((failures + 1))
+    fi
+  fi
+
+  if [[ "$config_loaded" == "true" ]]; then
+    if garth_github_app_refs_look_configured; then
+      garth_log_success "GitHub App refs look configured"
+    else
+      garth_log_warn "GitHub App refs look incomplete/placeholders"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if [[ "$op_available" == "true" ]]; then
+    if op whoami >/dev/null 2>&1 || doctor_try_op_signin; then
+      op_session=true
+      garth_log_success "1Password CLI session available"
+    else
+      garth_log_warn "1Password CLI is not signed in"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if [[ "$config_loaded" == "true" && "$op_session" == "true" ]]; then
+    local app_ref key_ref install_ref
+    app_ref="$GARTH_GITHUB_APP_APP_ID_REF"
+    key_ref="$GARTH_GITHUB_APP_PRIVATE_KEY_REF"
+    install_ref="$GARTH_GITHUB_APP_INSTALLATION_ID_REF"
+
+    if garth_validate_ref_readable "$app_ref"; then
+      garth_log_success "Readable app_id_ref"
+    else
+      garth_log_error "Unreadable app_id_ref: $app_ref"
+      failures=$((failures + 1))
+    fi
+
+    if garth_validate_ref_readable "$key_ref"; then
+      garth_log_success "Readable private_key_ref"
+      local tmp_key
+      tmp_key=$(mktemp "${TMPDIR:-/tmp}/garth-doctor-key.XXXXXX")
+      garth_register_cleanup_path "$tmp_key"
+      op read "$key_ref" > "$tmp_key" 2>/dev/null || true
+      if ! garth_github_private_key_valid "$tmp_key"; then
+        garth_github_normalize_private_key_file "$tmp_key"
+      fi
+      if garth_github_private_key_valid "$tmp_key"; then
+        garth_log_success "GitHub private key PEM is valid"
+      else
+        garth_log_error "GitHub private key PEM is invalid for ref: $key_ref"
+        failures=$((failures + 1))
+      fi
+    else
+      garth_log_error "Unreadable private_key_ref: $key_ref"
+      failures=$((failures + 1))
+    fi
+
+    if [[ "$GARTH_GITHUB_APP_INSTALLATION_STRATEGY" == "single" ]]; then
+      if garth_validate_ref_readable "$install_ref"; then
+        garth_log_success "Readable installation_id_ref (single strategy)"
+      else
+        garth_log_error "Unreadable installation_id_ref: $install_ref"
+        failures=$((failures + 1))
+      fi
+    fi
+  fi
+
+  if [[ "$config_loaded" == "true" && -d "$repo_dir" ]]; then
+    local repo_root remote_url owner_repo
+    if repo_root=$(garth_git_repo_root "$repo_dir" 2>/dev/null); then
+      if remote_url=$(garth_git_remote_url "$repo_root" "origin" 2>/dev/null) && \
+         owner_repo=$(garth_git_owner_repo_from_remote "$remote_url" 2>/dev/null); then
+        garth_log_success "Repo remote parsed: $owner_repo"
+        if [[ "$skip_token" == "false" ]]; then
+          if [[ "$op_session" == "true" ]]; then
+            local token_line
+            if token_line=$("$GARTH_BIN_PATH" token "$repo_root" --machine 2>/dev/null); then
+              garth_log_success "Token mint test passed"
+            else
+              garth_log_error "Token mint test failed for repo: $repo_root"
+              failures=$((failures + 1))
+            fi
+          else
+            garth_log_warn "Skipping token mint test: 1Password CLI session unavailable"
+            warnings=$((warnings + 1))
+          fi
+        fi
+      else
+        garth_log_warn "Repo origin is not a supported GitHub URL: $repo_root"
+        warnings=$((warnings + 1))
+      fi
+    else
+      garth_log_warn "Not a git repo (token test skipped): $repo_dir"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if [[ "$config_loaded" == "true" ]] && command -v docker >/dev/null 2>&1; then
+    local image_prefix image_tag agent
+    image_prefix="$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX"
+    for agent in claude codex; do
+      image_tag="${image_prefix}-${agent}:latest"
+      if docker image inspect "$image_tag" >/dev/null 2>&1; then
+        garth_log_success "Docker image present: $image_tag"
+      else
+        garth_log_warn "Docker image missing: $image_tag"
+        warnings=$((warnings + 1))
+      fi
+    done
+  fi
+
+  if ((failures > 0)); then
+    garth_log_error "Doctor found ${failures} failing check(s) and ${warnings} warning(s)"
+    return 1
+  fi
+
+  if ((warnings > 0)); then
+    garth_log_warn "Doctor found 0 failures and ${warnings} warning(s)"
+  else
+    garth_log_success "Doctor found 0 failures and 0 warnings"
+  fi
+  return 0
+}
+
 main() {
   local command="${1:-}"
   if [[ -z "$command" ]]; then
@@ -1235,6 +1458,7 @@ main() {
     worktree) cmd_worktree "$@" ;;
     agent) cmd_agent "$@" ;;
     token) cmd_token "$@" ;;
+    doctor) cmd_doctor "$@" ;;
     status) cmd_status "$@" ;;
     stop) cmd_stop "$@" ;;
     setup) cmd_setup "$@" ;;
