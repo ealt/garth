@@ -108,6 +108,34 @@ garth_github_generate_app_jwt() {
   printf '%s.%s.%s' "$header_b64" "$payload_b64" "$signature"
 }
 
+garth_github_private_key_valid() {
+  local key_file="$1"
+  openssl pkey -in "$key_file" -noout >/dev/null 2>&1
+}
+
+garth_github_normalize_private_key_file() {
+  local key_file="$1"
+  python3 - << 'PY' "$key_file"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8", errors="replace")
+s = text.strip()
+
+if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+    s = s[1:-1]
+
+s = s.replace("\r\n", "\n").replace("\r", "\n")
+s = s.replace("\\n", "\n")
+
+if s and not s.endswith("\n"):
+    s += "\n"
+
+path.write_text(s, encoding="utf-8")
+PY
+}
+
 garth_github_installation_from_map() {
   local owner="$1"
   local map_json="$2"
@@ -174,6 +202,14 @@ garth_github_mint_installation_token() {
   key_file=$(mktemp "${TMPDIR:-/tmp}/garth-app-key.XXXXXX") || return 1
   garth_register_cleanup_path "$key_file"
   garth_secret_write_file "$GARTH_GITHUB_APP_PRIVATE_KEY_REF" "$key_file" || return 1
+  if ! garth_github_private_key_valid "$key_file"; then
+    # Common pattern: PEM stored as a single escaped string with "\n".
+    garth_github_normalize_private_key_file "$key_file"
+  fi
+  if ! garth_github_private_key_valid "$key_file"; then
+    garth_log_error "GitHub App private key is invalid. Ensure ${GARTH_GITHUB_APP_PRIVATE_KEY_REF} contains PEM text with BEGIN/END lines."
+    return 1
+  fi
 
   local app_jwt
   app_jwt=$(garth_github_generate_app_jwt "$app_id" "$key_file") || return 1
