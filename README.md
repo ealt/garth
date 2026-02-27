@@ -38,7 +38,8 @@ garth/
   bin/garth
   lib/
   docker/Dockerfile
-  config/garth.example.toml
+  config.example.toml
+  config.toml
   templates/aerospace.example.toml
 ```
 
@@ -61,12 +62,24 @@ Optional:
 ## Setup
 
 ```bash
+./setup.sh
+```
+
+This repo bootstrap script:
+
+- runs `bin/garth setup --yes`
+- creates `./config.toml` from `config.example.toml` (if missing)
+- validates repo-local config and installs `garth` in `~/.local/bin`
+
+If you prefer interactive setup prompts:
+
+```bash
 garth setup
 ```
 
 This will:
 
-- create `~/.config/garth/config.toml` from the example
+- create `config.toml` (repo root) from `config.example.toml`
 - optionally switch safety default to `permissive`
 - optionally guide you through setting `[github_app]` 1Password refs
 - validate config
@@ -83,9 +96,9 @@ See the dedicated setup guide:
 
 ## Config
 
-Default config path:
+Default config file:
 
-`~/.config/garth/config.toml`
+`./config.toml` (repo root, gitignored)
 
 Key sections:
 
@@ -164,7 +177,7 @@ garth stop --all --yes
 - `Config not found`: run `garth setup`
 - `1Password CLI is not signed in`: run `op signin`
 - `"isn't a vault in this account"`: update `op://...` refs in
-  `~/.config/garth/config.toml` to your actual vault/item/field names
+  `config.toml` to your actual vault/item/field names
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
 - `Session already exists`: run `garth stop <session>` first
 

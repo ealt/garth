@@ -21,7 +21,8 @@ source "$GARTH_ROOT/lib/workspace.sh"
 garth_install_cleanup_trap
 
 GARTH_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/garth"
-GARTH_CONFIG_PATH="${GARTH_CONFIG_PATH:-$HOME/.config/garth/config.toml}"
+# Standalone repo default: keep config in repo root unless explicitly overridden.
+GARTH_CONFIG_PATH="${GARTH_CONFIG_PATH:-$GARTH_ROOT/config.toml}"
 GARTH_BIN_PATH="$SCRIPT_DIR/garth"
 
 usage() {
@@ -989,7 +990,10 @@ cmd_setup() {
   mkdir -p "$config_dir"
 
   if [[ ! -f "$GARTH_CONFIG_PATH" ]]; then
-    cp "$GARTH_ROOT/config/garth.example.toml" "$GARTH_CONFIG_PATH"
+    local template_path="$GARTH_ROOT/config.example.toml"
+    [[ -f "$template_path" ]] || \
+      garth_die "Config template not found: $template_path" 1
+    cp "$template_path" "$GARTH_CONFIG_PATH"
     garth_log_success "Created config: $GARTH_CONFIG_PATH"
 
     if garth_ask_yn "Use permissive safety mode by default?"; then

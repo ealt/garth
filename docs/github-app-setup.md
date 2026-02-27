@@ -5,7 +5,7 @@ This guide walks through a full `garth` GitHub App setup:
 - create the GitHub App with the right permissions
 - install it on the repos or owners you need
 - store credentials in 1Password
-- configure `~/.config/garth/config.toml`
+- configure `config.toml` (repo root)
 - validate by minting a token
 
 ## Prerequisites
@@ -112,14 +112,34 @@ You can read it from the installation URL, for example:
 
 ## 3. Store Credentials in 1Password
 
-Create a 1Password item (for example, `GitHub App`) in your chosen vault.
+Recommended item type:
+
+- `Secure Note` with custom fields
+
+`garth` reads refs with `op read op://<vault>/<item>/<field>`, so a simple
+single item with predictable field labels is the most reliable setup.
+
+Create one item (for example, `GitHub App`) in your chosen vault.
 
 Recommended field labels:
 
 - `app-id` (text)
+  - numeric GitHub App ID
 - `client-id` (text, optional)
-- `private-key` (text or file/document)
+  - optional for future migration; `garth` currently uses `app_id_ref`
+- `private-key` (concealed text or text)
+  - paste the PEM content directly in this field
 - `installation-id` (text/number, optional for `by_owner`)
+  - required for `installation_strategy = "single"`
+
+Recommended refs:
+
+- `op://<VAULT>/GitHub App/app-id`
+- `op://<VAULT>/GitHub App/private-key`
+- `op://<VAULT>/GitHub App/installation-id`
+
+If you use field labels with spaces/special characters, prefer field IDs
+instead of labels.
 
 Useful discovery commands:
 
@@ -132,7 +152,7 @@ op item get "GitHub App" --vault "<VAULT>" --format json \
 
 ## 4. Configure `garth`
 
-Edit `~/.config/garth/config.toml`.
+Edit `config.toml` in the repo root (this file is gitignored).
 
 ### Recommended: `by_owner`
 
