@@ -207,7 +207,9 @@ garth_github_mint_installation_token() {
     garth_github_normalize_private_key_file "$key_file"
   fi
   if ! garth_github_private_key_valid "$key_file"; then
-    garth_log_error "GitHub App private key is invalid. Ensure ${GARTH_GITHUB_APP_PRIVATE_KEY_REF} contains PEM text with BEGIN/END lines."
+    garth_log_error "GitHub App private key is invalid."
+    garth_log_error "Ref ${GARTH_GITHUB_APP_PRIVATE_KEY_REF} must resolve to PEM text with BEGIN/END PRIVATE KEY lines."
+    garth_log_error "If your item has multiple fields, point private_key_ref at the exact field/id that stores the PEM content."
     return 1
   fi
 
