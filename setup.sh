@@ -11,11 +11,15 @@ REPO_ROOT="$(cd -P "$(dirname "$SOURCE_PATH")" && pwd)"
 
 usage() {
   cat << 'USAGE'
-Usage: ./setup.sh
+Usage: ./setup.sh [--yes]
 
 Bootstraps the standalone garth repo setup:
-  1) runs `bin/garth setup --yes`
+  1) runs `bin/garth setup` (interactive by default)
   2) creates/validates repo-local `config.toml`
+
+Options:
+  --yes, -y   Run non-interactively (`bin/garth setup --yes`)
+  --help, -h  Show help
 USAGE
 }
 
@@ -24,8 +28,13 @@ log_info() {
 }
 
 main() {
+  local non_interactive=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --yes|-y)
+        non_interactive=true
+        shift
+        ;;
       --help|-h)
         usage
         exit 0
@@ -44,8 +53,13 @@ main() {
     exit 1
   fi
 
-  log_info "Running non-interactive garth setup"
-  "$garth_bin" setup --yes
+  if [[ "$non_interactive" == "true" ]]; then
+    log_info "Running non-interactive garth setup"
+    "$garth_bin" setup --yes
+  else
+    log_info "Running interactive garth setup"
+    "$garth_bin" setup
+  fi
 }
 
 main "$@"

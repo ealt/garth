@@ -67,9 +67,15 @@ Optional:
 
 This repo bootstrap script:
 
-- runs `bin/garth setup --yes`
+- runs `bin/garth setup` (interactive by default)
 - creates `./config.toml` from `config.example.toml` (if missing)
 - validates repo-local config and installs `garth` in `~/.local/bin`
+
+For automation/non-interactive runs:
+
+```bash
+./setup.sh --yes
+```
 
 If you prefer interactive setup prompts:
 

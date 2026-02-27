@@ -886,6 +886,36 @@ garth_validate_ref_readable() {
   op read "$ref" >/dev/null 2>&1
 }
 
+garth_prompt_op_signin() {
+  if [[ "$GARTH_YES" == "true" ]]; then
+    garth_log_warn "Skipping GitHub App ref setup: op CLI is not signed in"
+    garth_log_info "Non-interactive mode cannot run 'op signin'"
+    garth_log_info "Run: eval \"\$(op signin)\" and then rerun 'garth setup'"
+    return 1
+  fi
+
+  garth_log_warn "1Password CLI is not signed in"
+  if ! garth_ask_yn "Run 'op signin' now?"; then
+    garth_log_warn "Skipping GitHub App ref setup: op CLI is not signed in"
+    garth_log_info "Run: eval \"\$(op signin)\" and then rerun 'garth setup'"
+    return 1
+  fi
+
+  if ! eval "$(op signin)"; then
+    garth_log_warn "op signin failed; skipping GitHub App ref setup"
+    garth_log_info "Run: eval \"\$(op signin)\" and then rerun 'garth setup'"
+    return 1
+  fi
+
+  if ! op whoami >/dev/null 2>&1; then
+    garth_log_warn "op signin did not establish a CLI session; skipping GitHub App ref setup"
+    return 1
+  fi
+
+  garth_log_success "1Password CLI sign-in complete"
+  return 0
+}
+
 garth_configure_github_app_refs() {
   if ! command -v op >/dev/null 2>&1; then
     garth_log_warn "Skipping GitHub App ref setup: op CLI not installed"
@@ -893,9 +923,7 @@ garth_configure_github_app_refs() {
   fi
 
   if ! op whoami >/dev/null 2>&1; then
-    garth_log_warn "Skipping GitHub App ref setup: op CLI is not signed in"
-    garth_log_info "Run: eval \"\$(op signin)\" and then rerun 'garth setup'"
-    return 0
+    garth_prompt_op_signin || return 0
   fi
 
   if [[ "$GARTH_YES" == "true" ]]; then
