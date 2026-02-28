@@ -34,6 +34,8 @@ profile_directory = ""
 install_neovim = false
 # When true, mount ~/.config/nvim into containers as read-only.
 mount_neovim_config = false
+# When true, Docker images are built with uv installed.
+install_uv = false
 
 [agents.claude]
 base_command = "claude"

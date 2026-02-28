@@ -50,10 +50,19 @@ garth/
 Required:
 
 - `git`
-- `python3`
+- `python3` (on macOS, prefer Homebrew Python over `/usr/bin/python3`)
 - `op` (1Password CLI, signed in)
 - `zellij`
 - `docker` (for sandbox mode)
+
+macOS Python note:
+
+- if `python3` resolves to `/usr/bin/python3`, macOS may prompt for Command
+  Line Tools updates
+- `garth`/`setup.sh` auto-prepend `/opt/homebrew/bin` when available, so once
+  Homebrew Python is installed you do not need a shell restart for garth usage
+- recommended:
+  `brew install python && echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc`
 
 Optional:
 
@@ -72,6 +81,8 @@ This repo bootstrap script:
 - runs `bin/garth setup` (interactive by default)
 - creates `./config.toml` from `config.example.toml` (if missing)
 - validates repo-local config and installs `garth` in `~/.local/bin`
+- on macOS, if `python3` is `/usr/bin/python3`, offers to install Homebrew
+  Python (auto in `--yes` when Homebrew is installed)
 - on macOS, offers to install `aerospace` via Homebrew (auto in `--yes`)
 - skips GitHub App ref prompts when already done
 - auto-builds missing default Docker images when Docker is available
@@ -85,6 +96,8 @@ For automation/non-interactive runs:
 
 In `--yes` mode, setup attempts `op signin` automatically if the 1Password CLI
 session is missing.
+On macOS with Homebrew available, it also auto-installs Homebrew Python when
+`python3` resolves to `/usr/bin/python3`.
 
 If you prefer interactive setup prompts:
 
@@ -140,6 +153,7 @@ Neovim note:
 - set `features.install_neovim = true` to include `nvim` in rebuilt Docker images
 - set `features.mount_neovim_config = true` to mount `~/.config/nvim` into
   containers as read-only
+- set `features.install_uv = true` to include `uv` in rebuilt Docker images
 
 ## Usage
 
@@ -169,6 +183,15 @@ Auth note:
   `defaults.auth_passthrough` (or passed via `--auth-passthrough`)
 - `--sandbox none`: local CLI login auth is supported (for example
   `claude auth login`, `codex login`)
+- when `claude` is in auth passthrough, `garth` mounts Claude auth/state paths
+  (`~/.claude`, `~/.config/claude`, `~/.local/state/claude`,
+  `~/.local/share/claude`, `~/.cache/claude`) so login state persists across
+  container restarts
+- `~/.claude.json` is not mounted at `/home/agent/.claude.json`; instead it is
+  mounted read-only to a side path and used as a startup seed, then `garth`
+  merges/restores OAuth state from Claude backups as needed
+- container cache root (`/home/agent/.cache`) is writable tmpfs so tools like
+  `uv` can create caches even with `--read-only`
 
 ### Create and boot a worktree
 
@@ -192,6 +215,7 @@ garth token .
 
 ```bash
 garth doctor --repo .
+garth doctor --repo . --deep
 garth status
 garth status --json
 garth stop garth-myrepo-feature__x
@@ -223,6 +247,7 @@ garth stop --all --yes
 ## Troubleshooting
 
 - `Auth/config check`: run `garth doctor --repo .`
+- `Runtime auth/startup probe`: run `garth doctor --repo . --deep`
 - `Config not found`: run `garth setup`
 - `1Password CLI is not signed in`: run `op signin`
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
@@ -235,6 +260,8 @@ garth stop --all --yes
   from the `garth` repo (`garth setup` is simplest)
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
 - `Session already exists`: run `garth stop <session>` first
+- `macOS asks to install Developer Tools for python3`: install Homebrew Python
+  and ensure `/opt/homebrew/bin` is before `/usr/bin` in your `PATH`
 
 ## Branding
 

@@ -59,7 +59,112 @@ garth_agent_command_string() {
 }
 
 garth_claude_runtime_preamble() {
-  printf '%s' 'mkdir -p /home/agent/.local/bin; ln -sf /usr/local/bin/claude /home/agent/.local/bin/claude; if [[ -f /home/agent/.claude.json ]] && ! jq -e . /home/agent/.claude.json >/dev/null 2>&1; then restored=""; while IFS= read -r backup; do [[ -n "$backup" ]] || continue; if jq -e . "$backup" >/dev/null 2>&1; then cp "$backup" /home/agent/.claude.json; restored="$backup"; echo "[garth] Restored /home/agent/.claude.json from $backup"; break; fi; done < <(ls -1t /home/agent/.claude/backups/.claude.json.backup.* /home/agent/.claude/backups/.claude.json.corrupted.* 2>/dev/null || true); if [[ -z "$restored" ]]; then printf "{}\n" > /home/agent/.claude.json; echo "[garth] Reinitialized /home/agent/.claude.json with empty JSON"; fi; elif [[ ! -f /home/agent/.claude.json ]]; then printf "{}\n" > /home/agent/.claude.json; fi'
+  cat <<'SCRIPT'
+seed_claude_json_from_host() {
+  local host_seed="/run/garth-host-claude.json"
+  if [[ ! -f "$host_seed" ]]; then
+    return 1
+  fi
+  if ! jq -e . "$host_seed" >/dev/null 2>&1; then
+    return 1
+  fi
+  cp "$host_seed" /home/agent/.claude.json
+  echo "[garth] Seeded /home/agent/.claude.json from $host_seed"
+  return 0
+}
+
+find_claude_backup_with_oauth() {
+  local backup
+  while IFS= read -r backup; do
+    [[ -n "$backup" ]] || continue
+    if ! jq -e . "$backup" >/dev/null 2>&1; then
+      continue
+    fi
+    if jq -e '.oauthAccount and (.oauthAccount | type == "object")' "$backup" >/dev/null 2>&1; then
+      printf '%s\n' "$backup"
+      return 0
+    fi
+  done < <(ls -1t /home/agent/.claude/backups/.claude.json.backup.* /home/agent/.claude/backups/.claude.json.corrupted.* 2>/dev/null || true)
+  return 1
+}
+
+find_any_valid_claude_backup() {
+  local backup
+  while IFS= read -r backup; do
+    [[ -n "$backup" ]] || continue
+    if jq -e . "$backup" >/dev/null 2>&1; then
+      printf '%s\n' "$backup"
+      return 0
+    fi
+  done < <(ls -1t /home/agent/.claude/backups/.claude.json.backup.* /home/agent/.claude/backups/.claude.json.corrupted.* 2>/dev/null || true)
+  return 1
+}
+
+ensure_claude_state_from_backup() {
+  if jq -e '.oauthAccount and (.oauthAccount | type == "object") and .firstStartTime' /home/agent/.claude.json >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local backup=""
+  if ! backup="$(find_claude_backup_with_oauth)"; then
+    return 1
+  fi
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  if jq --slurp '
+    (.[0] // {}) as $current
+    | (.[1] // {}) as $backup
+    | ($backup + $current + {oauthAccount: ($current.oauthAccount // $backup.oauthAccount)})
+  ' /home/agent/.claude.json "$backup" > "$tmp_file"; then
+    if cp "$tmp_file" /home/agent/.claude.json; then
+      echo "[garth] Merged /home/agent/.claude.json with backup state from $backup"
+    else
+      cp "$backup" /home/agent/.claude.json
+      echo "[garth] Replaced /home/agent/.claude.json from $backup"
+    fi
+  else
+    cp "$backup" /home/agent/.claude.json
+    echo "[garth] Replaced /home/agent/.claude.json from $backup"
+  fi
+  rm -f "$tmp_file"
+  return 0
+}
+
+restore_claude_json() {
+  local restored=""
+  local backup=""
+  if seed_claude_json_from_host; then
+    restored="/run/garth-host-claude.json"
+  fi
+  if [[ -z "$restored" ]]; then
+    if backup="$(find_claude_backup_with_oauth)"; then
+      cp "$backup" /home/agent/.claude.json
+      restored="$backup"
+    elif backup="$(find_any_valid_claude_backup)"; then
+      cp "$backup" /home/agent/.claude.json
+      restored="$backup"
+    fi
+  fi
+
+  if [[ -n "$restored" ]]; then
+    echo "[garth] Restored /home/agent/.claude.json from $restored"
+  else
+    printf "{}\n" > /home/agent/.claude.json
+    echo "[garth] Reinitialized /home/agent/.claude.json with empty JSON"
+  fi
+
+  ensure_claude_state_from_backup || true
+}
+
+if [[ ! -f /home/agent/.claude.json ]]; then
+  restore_claude_json
+elif ! jq -e . /home/agent/.claude.json >/dev/null 2>&1; then
+  restore_claude_json
+fi
+
+ensure_claude_state_from_backup || true
+SCRIPT
 }
 
 garth_agent_runtime_wrap_command() {
@@ -68,8 +173,10 @@ garth_agent_runtime_wrap_command() {
 
   if [[ "$agent" == "claude" ]]; then
     local preamble
+    local preamble_escaped
     preamble=$(garth_claude_runtime_preamble)
-    printf '%s' "${preamble}; ${cmd}"
+    printf -v preamble_escaped '%q' "$preamble"
+    printf '%s' "eval ${preamble_escaped}; ${cmd}"
     return 0
   fi
 
@@ -186,12 +293,37 @@ garth_container_emit_auth_mounts_lines() {
     fi
     if [[ -f "$HOME/.claude.json" ]]; then
       echo "-v"
-      echo "$HOME/.claude.json:/home/agent/.claude.json:rw"
+      echo "$HOME/.claude.json:/run/garth-host-claude.json:ro"
       count=$((count + 1))
     fi
     if [[ -d "$HOME/.config/claude" ]]; then
       echo "-v"
       echo "$HOME/.config/claude:/home/agent/.config/claude:rw"
+      count=$((count + 1))
+    fi
+    # Claude may persist auth/session state across these XDG paths.
+    local claude_runtime_dirs=(
+      "$HOME/.local/state/claude"
+      "$HOME/.local/share/claude"
+      "$HOME/.cache/claude"
+    )
+    local claude_dir
+    for claude_dir in "${claude_runtime_dirs[@]}"; do
+      mkdir -p "$claude_dir" >/dev/null 2>&1 || true
+    done
+    if [[ -d "$HOME/.local/state/claude" ]]; then
+      echo "-v"
+      echo "$HOME/.local/state/claude:/home/agent/.local/state/claude:rw"
+      count=$((count + 1))
+    fi
+    if [[ -d "$HOME/.local/share/claude" ]]; then
+      echo "-v"
+      echo "$HOME/.local/share/claude:/home/agent/.local/share/claude:rw"
+      count=$((count + 1))
+    fi
+    if [[ -d "$HOME/.cache/claude" ]]; then
+      echo "-v"
+      echo "$HOME/.cache/claude:/home/agent/.cache/claude:rw"
       count=$((count + 1))
     fi
   fi
@@ -255,7 +387,9 @@ garth_container_args_lines() {
   echo "--tmpfs"
   echo "/tmp:rw,noexec,nosuid,size=256m"
   echo "--tmpfs"
-  echo "/home/agent:rw,exec,nosuid,size=1024m,mode=1777"
+  echo "/home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
+  echo "--tmpfs"
+  echo "/home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
   echo "--memory"
   echo "8g"
   echo "--cpus"
@@ -283,6 +417,8 @@ garth_container_args_lines() {
   echo "XDG_CONFIG_HOME=/home/agent/.config"
   echo "--env"
   echo "XDG_STATE_HOME=/home/agent/.local/state"
+  echo "--env"
+  echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"
@@ -326,7 +462,9 @@ garth_container_shell_args_lines() {
   echo "--tmpfs"
   echo "/tmp:rw,noexec,nosuid,size=256m"
   echo "--tmpfs"
-  echo "/home/agent:rw,exec,nosuid,size=1024m,mode=1777"
+  echo "/home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
+  echo "--tmpfs"
+  echo "/home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
   echo "--network"
   echo "$network"
   echo "-v"
@@ -350,11 +488,19 @@ garth_container_shell_args_lines() {
   echo "XDG_CONFIG_HOME=/home/agent/.config"
   echo "--env"
   echo "XDG_STATE_HOME=/home/agent/.local/state"
+  echo "--env"
+  echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"
   local shell_command="exec bash"
-  shell_command=$(garth_agent_runtime_wrap_command "$shell_agent" "$shell_command")
+  if [[ "$shell_agent" == "claude" ]]; then
+    local preamble
+    local preamble_escaped
+    preamble=$(garth_claude_runtime_preamble)
+    printf -v preamble_escaped '%q' "$preamble"
+    shell_command="eval ${preamble_escaped}; ${shell_command}"
+  fi
   echo "bash"
   echo "-lc"
   echo "$shell_command"
@@ -364,12 +510,17 @@ garth_docker_build_agent_image() {
   local agent="$1"
   local image_prefix="$2"
   local install_neovim="${GARTH_FEATURES_INSTALL_NEOVIM:-false}"
+  local install_uv="${GARTH_FEATURES_INSTALL_UV:-false}"
   local nvim_build_arg="GARTH_INSTALL_NEOVIM=0"
+  local uv_build_arg="GARTH_INSTALL_UV=0"
   if [[ "$install_neovim" == "true" ]]; then
     nvim_build_arg="GARTH_INSTALL_NEOVIM=1"
   fi
+  if [[ "$install_uv" == "true" ]]; then
+    uv_build_arg="GARTH_INSTALL_UV=1"
+  fi
   garth_require_cmd docker
-  garth_run_cmd docker build --build-arg "$nvim_build_arg" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+  garth_run_cmd docker build --build-arg "$nvim_build_arg" --build-arg "$uv_build_arg" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
 }
 
 garth_docker_image_has_binary() {
@@ -379,7 +530,7 @@ garth_docker_image_has_binary() {
   docker run --rm \
     --read-only \
     --tmpfs /tmp:rw,noexec,nosuid,size=256m \
-    --tmpfs /home/agent:rw,exec,nosuid,size=1024m,mode=1777 \
+    --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
     --entrypoint /bin/bash "$image" \
     -lc "command -v $(printf '%q' "$binary") >/dev/null"
 }
@@ -419,6 +570,10 @@ garth_ensure_agent_image_ready() {
     garth_log_warn "Image $image is missing expected binary 'nvim'; rebuilding"
     rebuild=true
   fi
+  if [[ "${GARTH_FEATURES_INSTALL_UV:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "uv"; then
+    garth_log_warn "Image $image is missing expected binary 'uv'; rebuilding"
+    rebuild=true
+  fi
 
   if [[ "$rebuild" == "true" ]]; then
     garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
@@ -431,6 +586,10 @@ garth_ensure_agent_image_ready() {
 
   if [[ "${GARTH_FEATURES_INSTALL_NEOVIM:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "nvim"; then
     garth_log_error "Image $image still missing 'nvim' after rebuild"
+    return 1
+  fi
+  if [[ "${GARTH_FEATURES_INSTALL_UV:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "uv"; then
+    garth_log_error "Image $image still missing 'uv' after rebuild"
     return 1
   fi
 }

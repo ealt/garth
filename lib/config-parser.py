@@ -60,7 +60,7 @@ ALLOWED_GITHUB_APP = {
     "installation_id_map",
 }
 ALLOWED_CHROME = {"profiles_dir", "profile_directory"}
-ALLOWED_FEATURES = {"install_neovim", "mount_neovim_config"}
+ALLOWED_FEATURES = {"install_neovim", "mount_neovim_config", "install_uv"}
 ALLOWED_AGENT = {
     "base_command",
     "command",  # Back-compat input form.
@@ -248,11 +248,14 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
     features = {
         "install_neovim": features_raw.get("install_neovim", False),
         "mount_neovim_config": features_raw.get("mount_neovim_config", False),
+        "install_uv": features_raw.get("install_uv", False),
     }
     if not isinstance(features["install_neovim"], bool):
         out.error("features.install_neovim must be true or false")
     if not isinstance(features["mount_neovim_config"], bool):
         out.error("features.mount_neovim_config must be true or false")
+    if not isinstance(features["install_uv"], bool):
+        out.error("features.install_uv must be true or false")
     norm["features"] = features
 
     agents_raw = raw.get("agents", {})
@@ -346,6 +349,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_CHROME_PROFILE_DIRECTORY", chrome["profile_directory"])
     put("GARTH_FEATURES_INSTALL_NEOVIM", features["install_neovim"])
     put("GARTH_FEATURES_MOUNT_NEOVIM_CONFIG", features["mount_neovim_config"])
+    put("GARTH_FEATURES_INSTALL_UV", features["install_uv"])
 
     names = sorted(agents.keys())
     put("GARTH_AGENT_NAMES_CSV", ",".join(names))

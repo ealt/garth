@@ -2,6 +2,7 @@ FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG GARTH_INSTALL_NEOVIM=0
+ARG GARTH_INSTALL_UV=0
 
 RUN set -eux; \
   packages="bash ca-certificates curl git jq openssl python3 python3-pip gnupg"; \
@@ -11,6 +12,11 @@ RUN set -eux; \
   apt-get update; \
   apt-get install -y --no-install-recommends $packages; \
   rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  if [ "$GARTH_INSTALL_UV" = "1" ] || [ "$GARTH_INSTALL_UV" = "true" ]; then \
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh; \
+  fi
 
 # Node.js 22 LTS
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \

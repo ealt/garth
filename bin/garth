@@ -25,6 +25,10 @@ GARTH_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/garth"
 GARTH_CONFIG_PATH="${GARTH_CONFIG_PATH:-$GARTH_ROOT/config.toml}"
 GARTH_BIN_PATH="$SCRIPT_DIR/garth"
 
+if garth_is_macos && [[ -x "/opt/homebrew/bin/python3" ]]; then
+  export PATH="/opt/homebrew/bin:$PATH"
+fi
+
 usage() {
   cat << 'USAGE'
 Usage: garth <command> [options]
@@ -1192,6 +1196,49 @@ garth_setup_aerospace() {
   fi
 }
 
+garth_setup_python3() {
+  local non_interactive="${1:-false}"
+
+  if ! garth_is_macos; then
+    return 0
+  fi
+
+  local py_path py_ver
+  py_path="$(command -v python3 || true)"
+  py_ver="$(python3 --version 2>/dev/null || true)"
+
+  if [[ "$py_path" != "/usr/bin/python3" ]]; then
+    return 0
+  fi
+
+  garth_log_warn "Detected macOS system python3 ($py_ver at $py_path)"
+  garth_log_warn "This can trigger Command Line Tools prompts during setup/use."
+
+  if [[ -x "/opt/homebrew/bin/python3" ]]; then
+    garth_log_info "Homebrew python3 already installed at /opt/homebrew/bin/python3"
+    garth_log_warn "Ensure /opt/homebrew/bin appears before /usr/bin in your PATH."
+    return 0
+  fi
+
+  if ! command -v brew >/dev/null 2>&1; then
+    garth_log_warn "Homebrew not found. Install Homebrew, then run: brew install python"
+    return 0
+  fi
+
+  if [[ "$non_interactive" == "true" ]] || garth_ask_yn "Install Homebrew python now?"; then
+    garth_log_info "Installing Homebrew python"
+    if brew install python; then
+      garth_log_success "Installed Homebrew python"
+      garth_log_warn "Add to shell init if needed:"
+      garth_log_warn "  export PATH=\"/opt/homebrew/bin:\$PATH\""
+    else
+      garth_log_warn "Homebrew python install failed. Run manually: brew install python"
+    fi
+  else
+    garth_log_warn "Skipping Homebrew python install."
+  fi
+}
+
 cmd_setup() {
   local non_interactive=false
   while [[ $# -gt 0 ]]; do
@@ -1214,6 +1261,7 @@ cmd_setup() {
   garth_log_info "Checking prerequisites"
   garth_require_cmd git
   garth_require_cmd python3
+  garth_setup_python3 "$non_interactive"
 
   local optional=(docker zellij op)
   local cmd
@@ -1427,6 +1475,7 @@ doctor_try_op_signin() {
 cmd_doctor() {
   local repo_dir="."
   local skip_token=false
+  local deep_checks=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1438,9 +1487,13 @@ cmd_doctor() {
         skip_token=true
         shift
         ;;
+      --deep)
+        deep_checks=true
+        shift
+        ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth doctor [--repo <dir>] [--skip-token]
+Usage: garth doctor [--repo <dir>] [--skip-token] [--deep]
 
 Checks:
   - required commands and optional tooling
@@ -1450,6 +1503,7 @@ Checks:
   - optional token mint test for a target repo (default: .)
   - default Docker image presence (claude/codex)
   - optional feature checks (for example Neovim install/mount)
+  - with --deep: runtime Docker auth/startup probes for passthrough agents
 HELP
         return 0
         ;;
@@ -1690,6 +1744,14 @@ HELP
               warnings=$((warnings + 1))
             fi
           fi
+          if [[ "${GARTH_FEATURES_INSTALL_UV:-false}" == "true" ]]; then
+            if garth_docker_image_has_binary "$image_tag" "uv"; then
+              garth_log_success "Docker image has uv: $image_tag"
+            else
+              garth_log_warn "features.install_uv=true but image lacks uv: $image_tag"
+              warnings=$((warnings + 1))
+            fi
+          fi
           ;;
         missing)
           garth_log_warn "Docker image missing: $image_tag"
@@ -1702,6 +1764,129 @@ HELP
           ;;
       esac
     done
+  fi
+
+  if [[ "$deep_checks" == "true" ]]; then
+    if [[ "$config_loaded" != "true" ]]; then
+      garth_log_warn "Skipping deep checks: config did not load"
+      warnings=$((warnings + 1))
+    elif ! command -v docker >/dev/null 2>&1; then
+      garth_log_warn "Skipping deep checks: docker command is unavailable"
+      warnings=$((warnings + 1))
+    else
+      local deep_image_prefix
+      deep_image_prefix="$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX"
+
+      if csv_contains_token "$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV" "claude"; then
+        local claude_image
+        claude_image="${deep_image_prefix}-claude:latest"
+        local claude_state
+        claude_state=$(garth_docker_image_state "$claude_image")
+        if [[ "$claude_state" != "present" ]]; then
+          garth_log_warn "Skipping Claude deep checks: Docker image unavailable: $claude_image ($claude_state)"
+          warnings=$((warnings + 1))
+        else
+          garth_log_info "Deep check: probing Claude Docker auth/startup path"
+          local -a claude_mount_args=()
+          local mount_arg
+          while IFS= read -r mount_arg; do
+            claude_mount_args+=("$mount_arg")
+          done < <(garth_container_emit_auth_mounts_lines "claude" || true)
+
+          if [[ ${#claude_mount_args[@]} -eq 0 ]]; then
+            garth_log_warn "Skipping Claude deep checks: no passthrough mount paths found"
+            warnings=$((warnings + 1))
+          else
+            local preamble preamble_escaped auth_status_json state_probe_json
+            preamble=$(garth_claude_runtime_preamble)
+            printf -v preamble_escaped '%q' "$preamble"
+
+            if auth_status_json=$(docker run --rm \
+              --read-only \
+              --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+              --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              --tmpfs /home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              "${claude_mount_args[@]}" \
+              --env HOME=/home/agent \
+              --env XDG_CACHE_HOME=/home/agent/.cache \
+              --env XDG_CONFIG_HOME=/home/agent/.config \
+              --env XDG_STATE_HOME=/home/agent/.local/state \
+              --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              "$claude_image" \
+              bash -lc "eval ${preamble_escaped}; claude auth status" 2>/dev/null); then
+              if printf '%s\n' "$auth_status_json" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true'; then
+                garth_log_success "Deep check passed: Claude auth status is logged in in container"
+              else
+                garth_log_error "Deep check failed: Claude auth status did not report logged in"
+                failures=$((failures + 1))
+              fi
+            else
+              garth_log_error "Deep check failed: unable to execute 'claude auth status' in container"
+              failures=$((failures + 1))
+            fi
+
+            if state_probe_json=$(docker run --rm \
+              --read-only \
+              --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+              --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              --tmpfs /home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              "${claude_mount_args[@]}" \
+              --env HOME=/home/agent \
+              --env XDG_CACHE_HOME=/home/agent/.cache \
+              --env XDG_CONFIG_HOME=/home/agent/.config \
+              --env XDG_STATE_HOME=/home/agent/.local/state \
+              --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              "$claude_image" \
+              bash -lc "eval ${preamble_escaped}; jq -c '{has_oauth: (.oauthAccount | type == \"object\"), has_first_start: has(\"firstStartTime\")}' /home/agent/.claude.json" 2>/dev/null); then
+              if printf '%s\n' "$state_probe_json" | grep -Eq '"has_oauth":[[:space:]]*true' && \
+                 printf '%s\n' "$state_probe_json" | grep -Eq '"has_first_start":[[:space:]]*true'; then
+                garth_log_success "Deep check passed: Claude state file has oauth + firstStartTime"
+              else
+                garth_log_error "Deep check failed: Claude state file is missing oauth or firstStartTime"
+                failures=$((failures + 1))
+              fi
+            else
+              garth_log_error "Deep check failed: unable to inspect /home/agent/.claude.json in container"
+              failures=$((failures + 1))
+            fi
+
+            local probe_name
+            probe_name="garth-doctor-claude-probe-$$-$(garth_now_epoch)"
+            if docker run -d --name "$probe_name" -it \
+              --read-only \
+              --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+              --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              --tmpfs /home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              "${claude_mount_args[@]}" \
+              --env HOME=/home/agent \
+              --env XDG_CACHE_HOME=/home/agent/.cache \
+              --env XDG_CONFIG_HOME=/home/agent/.config \
+              --env XDG_STATE_HOME=/home/agent/.local/state \
+              --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              "$claude_image" \
+              bash -lc "eval ${preamble_escaped}; claude" >/dev/null 2>&1; then
+              sleep 5
+              local probe_logs probe_logs_plain probe_logs_compact
+              probe_logs=$(docker logs --tail 220 "$probe_name" 2>&1 || true)
+              probe_logs_plain=$(printf '%s\n' "$probe_logs" | sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g; s/\r//g')
+              probe_logs_compact=$(printf '%s\n' "$probe_logs_plain" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]\n')
+              if printf '%s\n' "$probe_logs_compact" | grep -Eq 'selectloginmethod|openingbrowsertosignin|choosethetextstyle|letsgetstarted'; then
+                garth_log_error "Deep check failed: Claude startup entered onboarding/login flow"
+                failures=$((failures + 1))
+              else
+                garth_log_success "Deep check passed: Claude startup avoided onboarding/login prompts"
+              fi
+              docker rm -f "$probe_name" >/dev/null 2>&1 || true
+            else
+              garth_log_warn "Deep check skipped: unable to start interactive Claude probe container"
+              warnings=$((warnings + 1))
+            fi
+          fi
+        fi
+      else
+        garth_log_info "Skipping Claude deep checks: 'claude' not enabled in defaults.auth_passthrough"
+      fi
+    fi
   fi
 
   if ((failures > 0)); then
