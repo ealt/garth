@@ -1799,7 +1799,7 @@ Checks:
   - GitHub private key PEM validity
   - optional token mint test for a target repo (default: .)
   - default Docker image presence (claude/codex)
-  - optional feature checks (for example Neovim install/mount)
+  - optional feature checks (packages and mounts)
   - with --deep: runtime Docker auth/startup probes for passthrough agents
 HELP
         return 0

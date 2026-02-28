@@ -9,6 +9,14 @@ It launches a Zellij-based project session, runs agents in Docker (or host mode
 when explicitly requested), mints short-lived GitHub App installation tokens
 through 1Password, and keeps Git auth refreshed without restarting containers.
 
+## Quick Start
+
+```bash
+git clone <repo-url> && cd garth
+./setup.sh --yes
+garth boot .
+```
+
 ## Why garth
 
 Running AI coding agents with your full shell environment means they inherit
@@ -37,12 +45,14 @@ By default, agents do not get your home directory, SSH agent, or Docker socket.
 
 ```text
 garth/
-  bin/garth
-  lib/
-  docker/Dockerfile
-  config.example.toml
-  config.toml
-  templates/aerospace.example.toml
+  bin/garth                          # CLI entrypoint
+  lib/                               # Shell and Python modules
+  docker/                            # Dockerfile + seccomp profile
+  tests/                             # Smoke test scripts
+  docs/                              # Setup guides
+  templates/                         # Config templates (AeroSpace)
+  config.example.toml                # Baseline config
+  config.toml                        # Local config (gitignored)
 ```
 
 ## Prerequisites
@@ -145,7 +155,7 @@ Key sections:
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
 - `[github_app]`: 1Password refs and installation selection strategy
 - `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
-- `[features]`: optional runtime/build features (for example Neovim support)
+- `[features]`: optional packages and host mounts for agent images
 - `[security]`: protected read-only worktree paths, seccomp profile path, and auth passthrough mount modes (`ro|rw`)
 - `[agents.<name>]`: command + safe/permissive args + API key ref
 
@@ -261,6 +271,9 @@ garth stop --all --yes
   - read-only overlays for sensitive repo paths (`.git/hooks`, `.git/config`, `.github`, `.gitmodules`)
 - Session events are written to `$XDG_STATE_HOME/garth/sessions/<session>/audit.log` (JSONL, `0600`) with secret redaction.
 
+For implementation details (module-level security functions, seccomp profile
+usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
+
 ## Platform Notes
 
 - macOS: full launch flow (Cursor/Chrome/AeroSpace)
@@ -296,6 +309,11 @@ garth stop --all --yes
   `~/.local/state/garth/gui-bin/python` for tools that invoke `python` (not
   `python3`). Fully quit/reopen Cursor after boot so the new environment is
   picked up.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development setup, testing patterns,
+and the PR workflow.
 
 ## Branding
 
