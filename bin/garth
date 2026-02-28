@@ -1870,11 +1870,11 @@ HELP
               probe_logs=$(docker logs --tail 220 "$probe_name" 2>&1 || true)
               probe_logs_plain=$(printf '%s\n' "$probe_logs" | sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g; s/\r//g')
               probe_logs_compact=$(printf '%s\n' "$probe_logs_plain" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]\n')
-              if printf '%s\n' "$probe_logs_compact" | grep -Eq 'selectloginmethod|openingbrowsertosignin|choosethetextstyle|letsgetstarted'; then
-                garth_log_error "Deep check failed: Claude startup entered onboarding/login flow"
+              if printf '%s\n' "$probe_logs_compact" | grep -Eq 'selectloginmethod|openingbrowsertosignin|choosethetextstyle|letsgetstarted|accessingworkspace|yesitrustthisfolder'; then
+                garth_log_error "Deep check failed: Claude startup entered onboarding/login/trust flow"
                 failures=$((failures + 1))
               else
-                garth_log_success "Deep check passed: Claude startup avoided onboarding/login prompts"
+                garth_log_success "Deep check passed: Claude startup avoided onboarding/login/trust prompts"
               fi
               docker rm -f "$probe_name" >/dev/null 2>&1 || true
             else

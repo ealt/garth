@@ -131,6 +131,46 @@ ensure_claude_state_from_backup() {
   return 0
 }
 
+ensure_claude_startup_state() {
+  local workdir="${PWD:-/work}"
+  if [[ "$workdir" != /* ]]; then
+    workdir="/work"
+  fi
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  if jq --arg wd "$workdir" '
+    .theme = (
+      if (.theme | type) == "string" and (.theme | length) > 0
+      then .theme
+      else "dark"
+      end
+    )
+    | .hasCompletedOnboarding = true
+    | .lastOnboardingVersion = (.lastOnboardingVersion // .lastReleaseNotesSeen // "2.1.62")
+    | .projects = (
+        (.projects // {})
+        + {
+            ($wd): (
+              ((.projects // {})[$wd] // {})
+              + {
+                  hasTrustDialogAccepted: true,
+                  projectOnboardingSeenCount: (
+                    (((.projects // {})[$wd].projectOnboardingSeenCount // 0)
+                    | if . < 1 then 1 else . end)
+                  )
+                }
+            )
+          }
+      )
+  ' /home/agent/.claude.json > "$tmp_file"; then
+    cp "$tmp_file" /home/agent/.claude.json
+    echo "[garth] Ensured Claude startup state for $workdir"
+  fi
+  rm -f "$tmp_file"
+  return 0
+}
+
 restore_claude_json() {
   local restored=""
   local backup=""
@@ -164,6 +204,7 @@ elif ! jq -e . /home/agent/.claude.json >/dev/null 2>&1; then
 fi
 
 ensure_claude_state_from_backup || true
+ensure_claude_startup_state || true
 SCRIPT
 }
 
