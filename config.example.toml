@@ -4,6 +4,7 @@ sandbox = "docker"
 network = "bridge"
 safety_mode = "safe"
 docker_image_prefix = "garth"
+auth_passthrough = []
 
 [token_refresh]
 enabled = true

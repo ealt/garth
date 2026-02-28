@@ -23,7 +23,7 @@ garth_kdl_write_args_line() {
 }
 
 # Args:
-#   layout_file worktree session repo_root token_dir network image_prefix safety_mode sandbox agent...
+#   layout_file worktree session repo_root token_dir network image_prefix safety_mode sandbox auth_passthrough_csv agent...
 garth_generate_zellij_layout() {
   local layout_file="$1"
   local worktree="$2"
@@ -34,7 +34,8 @@ garth_generate_zellij_layout() {
   local image_prefix="$7"
   local safety_mode="$8"
   local sandbox="$9"
-  shift 9
+  local auth_passthrough_csv="${10}"
+  shift 10
   local agents=("$@")
 
   local tmp_file="${layout_file}.tmp"
@@ -51,11 +52,17 @@ garth_generate_zellij_layout() {
     for agent in "${agents[@]}"; do
       if [[ "$sandbox" == "docker" ]]; then
         echo "        pane name=\"$(garth_kdl_escape "$agent")\" command=\"docker\" {"
+        local auth_passthrough_enabled="false"
+        if [[ -n "$auth_passthrough_csv" ]]; then
+          case ",$auth_passthrough_csv," in
+            *",$agent,"*) auth_passthrough_enabled="true" ;;
+          esac
+        fi
         local -a pane_args=()
         local pane_arg
         while IFS= read -r pane_arg; do
           pane_args+=("$pane_arg")
-        done < <(garth_container_args_lines "$session" "$repo_root" "$worktree" "$agent" "$token_dir/agent-${agent}.env" "$token_dir" "$network" "$image_prefix" "$safety_mode")
+        done < <(garth_container_args_lines "$session" "$repo_root" "$worktree" "$agent" "$token_dir/agent-${agent}.env" "$token_dir" "$network" "$image_prefix" "$safety_mode" "$auth_passthrough_enabled")
         garth_kdl_write_args_line "${pane_args[@]}"
         echo "        }"
       else

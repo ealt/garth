@@ -41,6 +41,7 @@ ALLOWED_DEFAULTS = {
     "network",
     "safety_mode",
     "docker_image_prefix",
+    "auth_passthrough",
 }
 ALLOWED_TOKEN_REFRESH = {
     "enabled",
@@ -127,6 +128,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "network": defaults_raw.get("network", "bridge"),
         "safety_mode": defaults_raw.get("safety_mode", "safe"),
         "docker_image_prefix": defaults_raw.get("docker_image_prefix", "garth"),
+        "auth_passthrough": defaults_raw.get("auth_passthrough", []),
     }
 
     if not isinstance(defaults["agents"], list) or not defaults["agents"]:
@@ -145,6 +147,12 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
 
     if not isinstance(defaults["docker_image_prefix"], str) or not defaults["docker_image_prefix"]:
         out.error("defaults.docker_image_prefix must be a non-empty string")
+    if not isinstance(defaults["auth_passthrough"], list):
+        out.error("defaults.auth_passthrough must be an array of agent names")
+    else:
+        for item in defaults["auth_passthrough"]:
+            if not isinstance(item, str) or not item.strip():
+                out.error("defaults.auth_passthrough entries must be non-empty strings")
 
     norm["defaults"] = defaults
 
@@ -293,6 +301,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_DEFAULTS_NETWORK", defaults["network"])
     put("GARTH_DEFAULTS_SAFETY_MODE", defaults["safety_mode"])
     put("GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX", defaults["docker_image_prefix"])
+    put("GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV", ",".join(defaults["auth_passthrough"]))
 
     put("GARTH_TOKEN_REFRESH_ENABLED", token["enabled"])
     put("GARTH_TOKEN_REFRESH_LEAD_TIME", token["lead_time"])

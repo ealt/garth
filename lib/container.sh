@@ -48,23 +48,49 @@ garth_agent_command_string() {
 garth_prepare_agent_env_file() {
   local session_dir="$1"
   local agent="$2"
+  local require_api_key="${3:-true}"
 
   local api_key_env api_key_ref
   api_key_env=$(garth_agent_field "$agent" "API_KEY_ENV")
   api_key_ref=$(garth_agent_field "$agent" "API_KEY_REF")
 
   [[ -n "$api_key_env" ]] || garth_die "Missing api_key_env for agent: $agent" 1
-  [[ -n "$api_key_ref" ]] || garth_die "Missing api_key_ref for agent: $agent" 1
 
-  local api_key
-  api_key=$(garth_secret_read "$api_key_ref")
+  local has_api_key=false
+  local api_key=""
+
+  if [[ "$require_api_key" == "true" ]]; then
+    [[ -n "$api_key_ref" ]] || garth_die "Missing api_key_ref for agent: $agent" 1
+    if [[ "$api_key_ref" == *"<"* ]]; then
+      garth_log_error "Agent '$agent' api_key_ref is still a placeholder: $api_key_ref"
+      garth_log_error "Set a real 1Password ref for agents.$agent.api_key_ref in config.toml"
+      garth_log_error "Or run with --sandbox none to use local CLI login auth."
+      return 1
+    fi
+    if ! api_key=$(garth_secret_read "$api_key_ref"); then
+      garth_log_error "Failed to read agents.$agent.api_key_ref: $api_key_ref"
+      return 1
+    fi
+    has_api_key=true
+  else
+    # Host mode can rely on existing local CLI auth sessions (consumer subscriptions).
+    if [[ -n "$api_key_ref" && "$api_key_ref" != *"<"* ]]; then
+      if api_key=$(garth_secret_read "$api_key_ref"); then
+        has_api_key=true
+      else
+        garth_log_warn "Could not read agents.$agent.api_key_ref; continuing with local CLI auth in sandbox=none"
+      fi
+    fi
+  fi
 
   local env_file="$session_dir/agent-${agent}.env"
   umask 077
   {
     printf 'TERM=xterm-256color\n'
     printf 'GARTH_GITHUB_TOKEN_FILE=/run/garth/github_token\n'
-    printf '%s=%s\n' "$api_key_env" "$api_key"
+    if [[ "$has_api_key" == "true" ]]; then
+      printf '%s=%s\n' "$api_key_env" "$api_key"
+    fi
   } > "$env_file"
   chmod 600 "$env_file"
 
@@ -96,6 +122,39 @@ garth_container_name() {
   echo "${name:0:80}"
 }
 
+garth_container_emit_auth_mounts_lines() {
+  local agent="$1"
+  local count=0
+
+  if [[ "$agent" == "codex" ]]; then
+    if [[ -d "$HOME/.codex" ]]; then
+      echo "-v"
+      echo "$HOME/.codex:/home/agent/.codex:ro"
+      count=$((count + 1))
+    fi
+  fi
+
+  if [[ "$agent" == "claude" ]]; then
+    if [[ -d "$HOME/.claude" ]]; then
+      echo "-v"
+      echo "$HOME/.claude:/home/agent/.claude:ro"
+      count=$((count + 1))
+    fi
+    if [[ -f "$HOME/.claude.json" ]]; then
+      echo "-v"
+      echo "$HOME/.claude.json:/home/agent/.claude.json:ro"
+      count=$((count + 1))
+    fi
+    if [[ -d "$HOME/.config/claude" ]]; then
+      echo "-v"
+      echo "$HOME/.config/claude:/home/agent/.config/claude:ro"
+      count=$((count + 1))
+    fi
+  fi
+
+  [[ "$count" -gt 0 ]]
+}
+
 # Print docker args one per line for zellij KDL serialization.
 garth_container_args_lines() {
   local session="$1"
@@ -107,6 +166,7 @@ garth_container_args_lines() {
   local network="$7"
   local image_prefix="$8"
   local safety_mode="$9"
+  local auth_passthrough_enabled="${10:-false}"
 
   local command_string
   command_string=$(garth_agent_command_string "$agent" "$safety_mode")
@@ -146,6 +206,12 @@ garth_container_args_lines() {
   echo "${worktree}:/work"
   echo "-v"
   echo "${token_dir}:/run/garth:ro"
+  if [[ "$auth_passthrough_enabled" == "true" ]]; then
+    if ! garth_container_emit_auth_mounts_lines "$agent"; then
+      garth_log_warn "Docker auth passthrough enabled for '$agent' but no local auth files were found"
+      garth_log_warn "Run local login first (for example: 'codex login' or 'claude auth login')"
+    fi
+  fi
   echo "--env-file"
   echo "$env_file"
   echo "-w"

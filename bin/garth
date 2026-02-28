@@ -74,6 +74,16 @@ csv_to_array() {
   IFS=',' read -r -a _GARTH_ARRAY_OUT <<< "$csv"
 }
 
+csv_contains_token() {
+  local csv="$1"
+  local token="$2"
+  [[ -n "$csv" && -n "$token" ]] || return 1
+  case ",$csv," in
+    *",$token,"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 resolve_agents() {
   local requested_csv="$1"
   local csv="$requested_csv"
@@ -157,6 +167,7 @@ sleep_with_session_guard() {
 cmd_boot() {
   local dir=""
   local agents_csv=""
+  local auth_passthrough_csv=""
   local network=""
   local sandbox=""
   local workspace=""
@@ -166,6 +177,10 @@ cmd_boot() {
     case "$1" in
       --agents)
         agents_csv="$2"
+        shift 2
+        ;;
+      --auth-passthrough)
+        auth_passthrough_csv="$2"
         shift 2
         ;;
       --network)
@@ -202,6 +217,7 @@ Usage: garth boot <dir> [options]
 
 Options:
   --agents <a,b>              Comma-separated agents
+  --auth-passthrough <a,b>    Docker auth passthrough for selected agents (opt-in, reduced isolation)
   --sandbox docker|none       Runtime sandbox mode
   --no-sandbox                Alias for --sandbox none
   --network bridge|none       Docker network mode
@@ -231,19 +247,35 @@ HELP
   load_config
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
     ensure_state_root
-    # Sign in once in the parent shell process before secret reads in command substitutions.
-    garth_require_op
+    # Ensure a usable 1Password session in parent process before secret reads.
+    garth_ensure_secret_access "$GARTH_GITHUB_APP_APP_ID_REF"
   fi
 
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
+  auth_passthrough_csv="${auth_passthrough_csv:-$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV}"
+
+  csv_to_array "$auth_passthrough_csv"
+  local normalized_passthrough=()
+  local passthrough_agent
+  for passthrough_agent in "${_GARTH_ARRAY_OUT[@]:-}"; do
+    passthrough_agent="${passthrough_agent// /}"
+    [[ -n "$passthrough_agent" ]] || continue
+    normalized_passthrough+=("$passthrough_agent")
+  done
+  auth_passthrough_csv=$(garth_join_by "," "${normalized_passthrough[@]:-}")
 
   [[ "$sandbox" == "docker" || "$sandbox" == "none" ]] || garth_die "Invalid sandbox mode: $sandbox" 1
   [[ "$network" == "bridge" || "$network" == "none" ]] || garth_die "Invalid network mode: $network" 1
   [[ "$safety_mode" == "safe" || "$safety_mode" == "permissive" ]] || garth_die "Invalid safety mode: $safety_mode" 1
 
   resolve_agents "$agents_csv"
+
+  if [[ "$sandbox" == "docker" && -n "$auth_passthrough_csv" ]]; then
+    garth_log_warn "Docker auth passthrough is enabled for: $auth_passthrough_csv"
+    garth_log_warn "This weakens isolation by exposing local CLI auth state to containers."
+  fi
 
   if [[ "$GARTH_DRY_RUN" != "true" && "$sandbox" == "docker" ]]; then
     garth_require_cmd docker
@@ -311,13 +343,17 @@ HELP
       } > "$env_file"
       chmod 600 "$env_file"
     else
-      garth_prepare_agent_env_file "$session_dir" "$agent" >/dev/null || return 3
+      local require_api_key=true
+      if [[ "$sandbox" == "none" ]] || csv_contains_token "$auth_passthrough_csv" "$agent"; then
+        require_api_key=false
+      fi
+      garth_prepare_agent_env_file "$session_dir" "$agent" "$require_api_key" >/dev/null || return 3
     fi
   done
 
   local layout_file="$session_dir/layout.kdl"
   garth_generate_zellij_layout "$layout_file" "$abs_dir" "$session" "$repo_root" "$session_dir" "$network" \
-    "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode" "$sandbox" "${GARTH_SELECTED_AGENTS[@]}"
+    "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode" "$sandbox" "$auth_passthrough_csv" "${GARTH_SELECTED_AGENTS[@]}"
 
   local agents_csv_effective
   agents_csv_effective=$(garth_join_by "," "${GARTH_SELECTED_AGENTS[@]}")
@@ -381,7 +417,7 @@ cmd_worktree() {
         from_ref="$2"
         shift 2
         ;;
-      --dry-run|--yes|-y|--agents|--sandbox|--no-sandbox|--network|--workspace|--safety)
+      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
         forward+=("$1")
         if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
           shift
@@ -427,6 +463,7 @@ HELP
 cmd_agent() {
   local dir=""
   local agent=""
+  local auth_passthrough_csv=""
   local sandbox=""
   local network=""
   local safety_mode=""
@@ -435,6 +472,10 @@ cmd_agent() {
     case "$1" in
       --sandbox)
         sandbox="$2"
+        shift 2
+        ;;
+      --auth-passthrough)
+        auth_passthrough_csv="$2"
         shift 2
         ;;
       --network)
@@ -456,6 +497,7 @@ cmd_agent() {
       --help|-h)
         cat << 'HELP'
 Usage: garth agent <dir> <name> [--sandbox docker|none] [--network bridge|none] [--safety safe|permissive]
+       [--auth-passthrough <a,b>]
 HELP
         return 0
         ;;
@@ -478,11 +520,26 @@ HELP
   [[ -n "$dir" && -n "$agent" ]] || garth_die "agent requires <dir> <name>" 1
 
   load_config
-  # Sign in once in the parent shell process before secret reads in command substitutions.
-  garth_require_op
+  auth_passthrough_csv="${auth_passthrough_csv:-$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV}"
+  csv_to_array "$auth_passthrough_csv"
+  local normalized_passthrough=()
+  local passthrough_agent
+  for passthrough_agent in "${_GARTH_ARRAY_OUT[@]:-}"; do
+    passthrough_agent="${passthrough_agent// /}"
+    [[ -n "$passthrough_agent" ]] || continue
+    normalized_passthrough+=("$passthrough_agent")
+  done
+  auth_passthrough_csv=$(garth_join_by "," "${normalized_passthrough[@]:-}")
+  # Ensure a usable 1Password session in parent process before secret reads.
+  garth_ensure_secret_access "$GARTH_GITHUB_APP_APP_ID_REF"
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
+
+  if [[ "$sandbox" == "docker" && -n "$auth_passthrough_csv" ]]; then
+    garth_log_warn "Docker auth passthrough is enabled for: $auth_passthrough_csv"
+    garth_log_warn "This weakens isolation by exposing local CLI auth state to containers."
+  fi
 
   agent_exists "$agent" || garth_die "Unknown agent: $agent" 1
 
@@ -500,7 +557,11 @@ HELP
   minted=$(mint_token_for_repo "$repo_root") || return 3
   IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
   garth_write_token_file "$tmp_dir" "$token" >/dev/null
-  garth_prepare_agent_env_file "$tmp_dir" "$agent" >/dev/null || return 3
+  local require_api_key=true
+  if [[ "$sandbox" == "none" ]] || csv_contains_token "$auth_passthrough_csv" "$agent"; then
+    require_api_key=false
+  fi
+  garth_prepare_agent_env_file "$tmp_dir" "$agent" "$require_api_key" >/dev/null || return 3
 
   if [[ "$sandbox" == "none" ]]; then
     local cmd
@@ -524,11 +585,15 @@ HELP
   fi
 
   garth_require_cmd docker
+  local auth_passthrough_enabled=false
+  if csv_contains_token "$auth_passthrough_csv" "$agent"; then
+    auth_passthrough_enabled=true
+  fi
   local -a args=()
   local arg
   while IFS= read -r arg; do
     args+=("$arg")
-  done < <(garth_container_args_lines "$session" "$repo_root" "$abs_dir" "$agent" "$tmp_dir/agent-${agent}.env" "$tmp_dir" "$network" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode")
+  done < <(garth_container_args_lines "$session" "$repo_root" "$abs_dir" "$agent" "$tmp_dir/agent-${agent}.env" "$tmp_dir" "$network" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode" "$auth_passthrough_enabled")
 
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     echo "docker ${args[*]}"
@@ -576,8 +641,8 @@ HELP
   [[ -n "$dir" ]] || garth_die "token requires <dir>" 1
 
   load_config
-  # Sign in once in the parent shell process before secret reads in command substitutions.
-  garth_require_op
+  # Ensure a usable 1Password session in parent process before secret reads.
+  garth_ensure_secret_access "$GARTH_GITHUB_APP_APP_ID_REF"
 
   local abs_dir repo_root minted token expires_at expires_epoch installation_id owner_repo
   abs_dir=$(garth_abs_path "$dir")
@@ -608,6 +673,33 @@ human_uptime() {
   else
     echo "$((seconds / 3600))h"
   fi
+}
+
+garth_docker_image_state() {
+  local image_tag="$1"
+  local err_file
+  err_file=$(mktemp "${TMPDIR:-/tmp}/garth-docker-inspect.XXXXXX") || {
+    echo "unavailable:failed to create temp file"
+    return 0
+  }
+  garth_register_cleanup_path "$err_file"
+
+  if docker image inspect "$image_tag" >/dev/null 2>"$err_file"; then
+    rm -f "$err_file"
+    echo "present"
+    return 0
+  fi
+
+  local err_msg
+  err_msg=$(tr '\n' ' ' < "$err_file" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')
+  rm -f "$err_file"
+
+  if [[ "$err_msg" =~ [Nn]o\ such\ image ]] || [[ "$err_msg" =~ [Nn]ot\ found ]]; then
+    echo "missing"
+    return 0
+  fi
+
+  echo "unavailable:${err_msg:-docker inspect failed}"
 }
 
 count_session_containers() {
@@ -1096,31 +1188,39 @@ cmd_setup() {
   ln -sf "$GARTH_BIN_PATH" "$local_bin/garth"
   garth_log_success "Installed symlink: $local_bin/garth"
 
-  if [[ "$non_interactive" != "true" && -f "$GARTH_ROOT/docker/Dockerfile" ]]; then
+  if [[ -f "$GARTH_ROOT/docker/Dockerfile" ]]; then
     if ! command -v docker >/dev/null 2>&1; then
       garth_log_warn "Skipping Docker image build: docker is not installed"
     else
       load_config
       local image_prefix="$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX"
       local -a missing_agents=()
-      local agent image_tag
+      local agent image_tag state docker_issue=""
       for agent in claude codex; do
         image_tag="${image_prefix}-${agent}:latest"
-        if ! docker image inspect "$image_tag" >/dev/null 2>&1; then
-          missing_agents+=("$agent")
-        fi
+        state=$(garth_docker_image_state "$image_tag")
+        case "$state" in
+          present) ;;
+          missing) missing_agents+=("$agent") ;;
+          unavailable:*)
+            docker_issue="${state#unavailable:}"
+            break
+            ;;
+        esac
       done
 
-      if [[ ${#missing_agents[@]} -eq 0 ]]; then
+      if [[ -n "$docker_issue" ]]; then
+        garth_log_warn "Could not query Docker image state: $docker_issue"
+        garth_log_warn "Skipping automatic Docker image build. Check Docker daemon/context."
+      elif [[ ${#missing_agents[@]} -eq 0 ]]; then
         garth_log_info "Default Docker images already exist; skipping build"
       else
         local missing_csv
         missing_csv=$(IFS=','; echo "${missing_agents[*]}")
-        if garth_ask_yn "Build missing default Docker image(s) now (${missing_csv})?"; then
-          for agent in "${missing_agents[@]}"; do
-            garth_docker_build_agent_image "$agent" "$image_prefix" || true
-          done
-        fi
+        garth_log_info "Building missing default Docker image(s): ${missing_csv}"
+        for agent in "${missing_agents[@]}"; do
+          garth_docker_build_agent_image "$agent" "$image_prefix" || true
+        done
       fi
     fi
   fi
@@ -1339,15 +1439,49 @@ HELP
       garth_log_warn "GitHub App refs look incomplete/placeholders"
       warnings=$((warnings + 1))
     fi
+
+    local defaults_sandbox
+    defaults_sandbox="$GARTH_DEFAULTS_SANDBOX"
+    csv_to_array "$GARTH_DEFAULTS_AGENTS_CSV"
+    local doctor_agent doctor_api_ref
+    for doctor_agent in "${_GARTH_ARRAY_OUT[@]:-}"; do
+      doctor_api_ref=$(garth_agent_field "$doctor_agent" "API_KEY_REF")
+      if garth_ref_looks_configured "$doctor_api_ref"; then
+        garth_log_success "agents.$doctor_agent.api_key_ref looks configured"
+      else
+        if [[ "$defaults_sandbox" == "none" ]] || csv_contains_token "$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV" "$doctor_agent"; then
+          garth_log_warn "agents.$doctor_agent.api_key_ref is missing or a placeholder: ${doctor_api_ref:-<empty>}"
+          garth_log_warn "  Allowed by current defaults because local CLI auth mode is enabled."
+          warnings=$((warnings + 1))
+        else
+          garth_log_error "agents.$doctor_agent.api_key_ref is missing or a placeholder: ${doctor_api_ref:-<empty>}"
+          garth_log_error "  Required for defaults.sandbox=docker unless defaults.auth_passthrough includes '$doctor_agent'."
+          failures=$((failures + 1))
+        fi
+      fi
+    done
   fi
 
   if [[ "$op_available" == "true" ]]; then
-    if op whoami >/dev/null 2>&1 || doctor_try_op_signin; then
-      op_session=true
-      garth_log_success "1Password CLI session available"
+    if [[ "$config_loaded" == "true" ]] && garth_ref_looks_configured "$GARTH_GITHUB_APP_APP_ID_REF"; then
+      if op read "$GARTH_GITHUB_APP_APP_ID_REF" >/dev/null 2>&1; then
+        op_session=true
+        garth_log_success "1Password CLI session available"
+      elif doctor_try_op_signin && op read "$GARTH_GITHUB_APP_APP_ID_REF" >/dev/null 2>&1; then
+        op_session=true
+        garth_log_success "1Password CLI session available"
+      else
+        garth_log_warn "1Password CLI is not signed in or cannot read configured refs"
+        warnings=$((warnings + 1))
+      fi
     else
-      garth_log_warn "1Password CLI is not signed in"
-      warnings=$((warnings + 1))
+      if op whoami >/dev/null 2>&1 || doctor_try_op_signin; then
+        op_session=true
+        garth_log_success "1Password CLI session available"
+      else
+        garth_log_warn "1Password CLI is not signed in"
+        warnings=$((warnings + 1))
+      fi
     fi
   fi
 
@@ -1392,6 +1526,22 @@ HELP
         failures=$((failures + 1))
       fi
     fi
+
+    csv_to_array "$GARTH_DEFAULTS_AGENTS_CSV"
+    local doctor_agent doctor_api_ref
+    for doctor_agent in "${_GARTH_ARRAY_OUT[@]:-}"; do
+      doctor_api_ref=$(garth_agent_field "$doctor_agent" "API_KEY_REF")
+      if garth_ref_looks_configured "$doctor_api_ref"; then
+        if garth_validate_ref_readable "$doctor_api_ref"; then
+          garth_log_success "Readable agents.$doctor_agent.api_key_ref"
+        else
+          garth_log_error "Unreadable agents.$doctor_agent.api_key_ref: $doctor_api_ref"
+          failures=$((failures + 1))
+        fi
+      else
+        garth_log_info "Skipping agents.$doctor_agent.api_key_ref readability check (placeholder/missing)"
+      fi
+    done
   fi
 
   if [[ "$config_loaded" == "true" && -d "$repo_dir" ]]; then
@@ -1425,16 +1575,25 @@ HELP
   fi
 
   if [[ "$config_loaded" == "true" ]] && command -v docker >/dev/null 2>&1; then
-    local image_prefix image_tag agent
+    local image_prefix image_tag agent state
     image_prefix="$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX"
     for agent in claude codex; do
       image_tag="${image_prefix}-${agent}:latest"
-      if docker image inspect "$image_tag" >/dev/null 2>&1; then
-        garth_log_success "Docker image present: $image_tag"
-      else
-        garth_log_warn "Docker image missing: $image_tag"
-        warnings=$((warnings + 1))
-      fi
+      state=$(garth_docker_image_state "$image_tag")
+      case "$state" in
+        present)
+          garth_log_success "Docker image present: $image_tag"
+          ;;
+        missing)
+          garth_log_warn "Docker image missing: $image_tag"
+          warnings=$((warnings + 1))
+          ;;
+        unavailable:*)
+          garth_log_warn "Could not inspect Docker image $image_tag: ${state#unavailable:}"
+          garth_log_warn "Check Docker daemon/context; image presence could not be verified."
+          warnings=$((warnings + 1))
+          ;;
+      esac
     done
   fi
 

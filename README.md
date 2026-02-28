@@ -70,7 +70,8 @@ This repo bootstrap script:
 - runs `bin/garth setup` (interactive by default)
 - creates `./config.toml` from `config.example.toml` (if missing)
 - validates repo-local config and installs `garth` in `~/.local/bin`
-- skips GitHub App ref prompts and Docker image build prompts when already done
+- skips GitHub App ref prompts when already done
+- auto-builds missing default Docker images when Docker is available
 
 For automation/non-interactive runs:
 
@@ -94,6 +95,7 @@ This will:
 - optionally guide you through setting `[github_app]` 1Password refs
 - validate config
 - symlink `garth` into `~/.local/bin/garth`
+- build missing default Docker images (`garth-claude`, `garth-codex`) when possible
 
 ## GitHub App Setup
 
@@ -112,7 +114,8 @@ Default config file:
 
 Key sections:
 
-- `[defaults]`: selected agents, sandbox mode, network mode, safety mode
+- `[defaults]`: selected agents, sandbox mode, network mode, safety mode,
+  optional `auth_passthrough`
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
 - `[github_app]`: 1Password refs and installation selection strategy
 - `[agents.<name>]`: command + safe/permissive args + API key ref
@@ -130,10 +133,18 @@ garth boot .
 Common options:
 
 - `--agents claude,codex`
+- `--auth-passthrough claude,codex`
 - `--sandbox docker|none`
 - `--network bridge|none`
 - `--safety safe|permissive`
 - `--workspace 3`
+
+Auth note:
+
+- `--sandbox docker`: agent API keys are required unless the agent is listed in
+  `defaults.auth_passthrough` (or passed via `--auth-passthrough`)
+- `--sandbox none`: local CLI login auth is supported (for example
+  `claude auth login`, `codex login`)
 
 ### Create and boot a worktree
 
