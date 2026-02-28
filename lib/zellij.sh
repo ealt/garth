@@ -94,33 +94,27 @@ garth_generate_zellij_layout() {
 
   {
     echo "layout {"
-    echo "  tab name=\"dev\" focus=true {"
-    echo "    pane split_direction=\"vertical\" size=\"100%\" {"
-    if [[ "$sandbox" == "docker" ]]; then
-      local shell_agent="${agents[0]:-claude}"
-      local shell_auth_passthrough_enabled="false"
-      if [[ -n "$auth_passthrough_csv" ]]; then
-        case ",$auth_passthrough_csv," in
-          *",$shell_agent,"*) shell_auth_passthrough_enabled="true" ;;
-        esac
-      fi
-      echo "      pane name=\"shell\" size=\"35%\" command=\"docker\" {"
-      local -a shell_args=()
-      local shell_arg
-      while IFS= read -r shell_arg; do
-        shell_args+=("$shell_arg")
-      done < <(garth_container_shell_args_lines "$session" "$repo_root" "$worktree" "$token_dir" "$network" "$image_prefix" "$shell_agent" "$shell_auth_passthrough_enabled")
-      garth_kdl_write_args_line "${shell_args[@]}"
-      echo "      }"
-    else
-      echo "      pane name=\"shell\" size=\"35%\" cwd=\"$(garth_kdl_escape "$worktree")\""
-    fi
-    echo "      pane split_direction=\"horizontal\" size=\"65%\" {"
-
+    echo "  default_tab_template {"
+    echo "    pane size=1 borderless=true {"
+    echo "      plugin location=\"zellij:tab-bar\""
+    echo "    }"
+    echo "    children"
+    echo "    pane size=2 borderless=true {"
+    echo "      plugin location=\"zellij:status-bar\""
+    echo "    }"
+    echo "  }"
     local agent
+    local first_tab=true
     for agent in "${agents[@]}"; do
+      if [[ "$first_tab" == "true" ]]; then
+        echo "  tab name=\"$(garth_kdl_escape "$agent")\" focus=true {"
+        first_tab=false
+      else
+        echo "  tab name=\"$(garth_kdl_escape "$agent")\" {"
+      fi
+      echo "    pane split_direction=\"vertical\" size=\"100%\" {"
       if [[ "$sandbox" == "docker" ]]; then
-        echo "        pane name=\"$(garth_kdl_escape "$agent")\" command=\"docker\" {"
+        echo "      pane name=\"$(garth_kdl_escape "$agent")\" size=\"65%\" command=\"docker\" {"
         local auth_passthrough_enabled="false"
         if [[ -n "$auth_passthrough_csv" ]]; then
           case ",$auth_passthrough_csv," in
@@ -133,21 +127,21 @@ garth_generate_zellij_layout() {
           pane_args+=("$pane_arg")
         done < <(garth_container_args_lines "$session" "$repo_root" "$worktree" "$agent" "$token_dir/agent-${agent}.env" "$token_dir" "$network" "$image_prefix" "$safety_mode" "$auth_passthrough_enabled")
         garth_kdl_write_args_line "${pane_args[@]}"
-        echo "        }"
+        echo "      }"
       else
         local cmd
         cmd=$(garth_agent_command_string "$agent" "$safety_mode")
         local host_script
         host_script="set -a; source \"${token_dir}/agent-${agent}.env\"; set +a; export GITHUB_TOKEN=\"\$(cat \"${token_dir}/github_token\")\"; cd \"${worktree}\"; ${cmd}"
-        echo "        pane name=\"$(garth_kdl_escape "$agent")\" command=\"bash\" {"
+        echo "      pane name=\"$(garth_kdl_escape "$agent")\" size=\"65%\" command=\"bash\" {"
         garth_kdl_write_args_line "-lc" "$host_script"
-        echo "        }"
+        echo "      }"
       fi
+      # Keep shell local so user profile/shell integrations (e.g. Ghostty) behave normally.
+      echo "      pane name=\"shell\" size=\"35%\" cwd=\"$(garth_kdl_escape "$worktree")\""
+      echo "    }"
+      echo "  }"
     done
-
-    echo "      }"
-    echo "    }"
-    echo "  }"
     echo "}"
   } > "$tmp_file"
 

@@ -192,28 +192,25 @@ if [[ -z "$best_session" ]]; then
   exec bash
 fi
 
-container="${best_session}-shell"
-container="$(echo "$container" | sed -E 's/[^A-Za-z0-9_.-]/-/g')"
-container="${container:0:80}"
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "[garth] docker is not installed." >&2
-  exec bash
+container=""
+if command -v docker >/dev/null 2>&1; then
+  container="$(docker ps \
+    --filter "label=garth.session=$best_session" \
+    --filter "label=garth.agent=shell" \
+    --format '{{.Names}}' 2>/dev/null | head -n 1 || true)"
 fi
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
-  echo "[garth] Sandbox shell container is not running: $container" >&2
-  echo "[garth] Run: garth boot \"$repo_root\"" >&2
-  exec bash
+if [[ -n "$container" ]]; then
+  workdir="$(docker inspect --format '{{.Config.WorkingDir}}' "$container" 2>/dev/null || true)"
+  if [[ -z "$workdir" ]]; then
+    workdir="/"
+  fi
+  escaped_workdir="$(printf '%q' "$workdir")"
+  exec docker exec -it "$container" bash -lc "cd ${escaped_workdir}; exec bash"
 fi
 
-workdir="$(docker inspect --format '{{.Config.WorkingDir}}' "$container" 2>/dev/null || true)"
-if [[ -z "$workdir" ]]; then
-  workdir="/"
-fi
-escaped_workdir="$(printf '%q' "$workdir")"
-
-exec docker exec -it "$container" bash -lc "cd ${escaped_workdir}; exec bash"
+cd "$repo_root"
+exec "${SHELL:-/bin/bash}" -l
 SCRIPT
   chmod +x "$bridge_script"
 
