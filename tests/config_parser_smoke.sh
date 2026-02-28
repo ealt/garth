@@ -9,5 +9,7 @@ ENV_OUT=$("$GARTH_ROOT/lib/config-parser.py" env "$GARTH_ROOT/config.example.tom
 
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_SAFETY_MODE='
 echo "$ENV_OUT" | grep -q '^GARTH_AGENT_CLAUDE_BASE_COMMAND='
+echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_PROTECTED_PATHS_JSON='
+echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_SECCOMP_PROFILE='
 
 echo "config_parser_smoke: ok"

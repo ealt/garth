@@ -34,7 +34,7 @@ except ModuleNotFoundError:
 DURATION_RE = re.compile(r"^(?:[0-9]+[smh]|forever)$")
 NAME_RE = re.compile(r"[^A-Za-z0-9]")
 
-ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "chrome", "features", "agents"}
+ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "chrome", "features", "security", "agents"}
 ALLOWED_DEFAULTS = {
     "agents",
     "sandbox",
@@ -61,6 +61,15 @@ ALLOWED_GITHUB_APP = {
 }
 ALLOWED_CHROME = {"profiles_dir", "profile_directory"}
 ALLOWED_FEATURES = {"install_neovim", "mount_neovim_config", "install_uv"}
+ALLOWED_SECURITY = {"protected_paths", "seccomp_profile", "auth_mount_mode"}
+ALLOWED_SECURITY_AUTH_MOUNT_MODE = {
+    "codex_dot_codex",
+    "claude_dot_claude",
+    "claude_config",
+    "claude_state",
+    "claude_share",
+    "claude_cache",
+}
 ALLOWED_AGENT = {
     "base_command",
     "command",  # Back-compat input form.
@@ -258,6 +267,43 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error("features.install_uv must be true or false")
     norm["features"] = features
 
+    security_raw = raw.get("security", {})
+    if not isinstance(security_raw, dict):
+        out.error("security must be a table")
+        security_raw = {}
+    warn_unknown_keys(security_raw, ALLOWED_SECURITY, "security.", out)
+
+    auth_mount_mode_raw = security_raw.get("auth_mount_mode", {})
+    if not isinstance(auth_mount_mode_raw, dict):
+        out.error("security.auth_mount_mode must be a table")
+        auth_mount_mode_raw = {}
+    warn_unknown_keys(auth_mount_mode_raw, ALLOWED_SECURITY_AUTH_MOUNT_MODE, "security.auth_mount_mode.", out)
+
+    security = {
+        "protected_paths": security_raw.get("protected_paths", [".git/hooks", ".git/config", ".github", ".gitmodules"]),
+        "seccomp_profile": security_raw.get("seccomp_profile", "docker/seccomp-profile.json"),
+        "auth_mount_mode": {
+            "codex_dot_codex": auth_mount_mode_raw.get("codex_dot_codex", "rw"),
+            "claude_dot_claude": auth_mount_mode_raw.get("claude_dot_claude", "rw"),
+            "claude_config": auth_mount_mode_raw.get("claude_config", "rw"),
+            "claude_state": auth_mount_mode_raw.get("claude_state", "rw"),
+            "claude_share": auth_mount_mode_raw.get("claude_share", "rw"),
+            "claude_cache": auth_mount_mode_raw.get("claude_cache", "rw"),
+        },
+    }
+
+    if not isinstance(security["protected_paths"], list) or not all(
+        isinstance(v, str) and bool(v.strip()) for v in security["protected_paths"]
+    ):
+        out.error("security.protected_paths must be an array of non-empty strings")
+    if not isinstance(security["seccomp_profile"], str):
+        out.error("security.seccomp_profile must be a string")
+    for mode_key, mode_value in security["auth_mount_mode"].items():
+        if mode_value not in {"ro", "rw"}:
+            out.error(f"security.auth_mount_mode.{mode_key} must be one of: ro, rw")
+
+    norm["security"] = security
+
     agents_raw = raw.get("agents", {})
     if not isinstance(agents_raw, dict) or not agents_raw:
         out.error("agents must be a non-empty table")
@@ -322,6 +368,7 @@ def emit_env(config: dict[str, Any]) -> str:
     gh = config["github_app"]
     chrome = config["chrome"]
     features = config["features"]
+    security = config["security"]
     agents = config["agents"]
 
     put("GARTH_DEFAULTS_AGENTS_CSV", ",".join(defaults["agents"]))
@@ -350,6 +397,12 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_FEATURES_INSTALL_NEOVIM", features["install_neovim"])
     put("GARTH_FEATURES_MOUNT_NEOVIM_CONFIG", features["mount_neovim_config"])
     put("GARTH_FEATURES_INSTALL_UV", features["install_uv"])
+
+    put("GARTH_SECURITY_PROTECTED_PATHS_JSON", security["protected_paths"])
+    put("GARTH_SECURITY_SECCOMP_PROFILE", security["seccomp_profile"])
+    for mode_key, mode_value in sorted(security["auth_mount_mode"].items()):
+        env_key = NAME_RE.sub("_", mode_key).upper()
+        put(f"GARTH_SECURITY_AUTH_MOUNT_MODE_{env_key}", mode_value)
 
     names = sorted(agents.keys())
     put("GARTH_AGENT_NAMES_CSV", ",".join(names))

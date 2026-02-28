@@ -37,6 +37,21 @@ mount_neovim_config = false
 # When true, Docker images are built with uv installed.
 install_uv = false
 
+[security]
+# Host-side paths under the worktree to overlay as read-only in containers.
+protected_paths = [".git/hooks", ".git/config", ".github", ".gitmodules"]
+# Relative to repo root unless absolute.
+seccomp_profile = "docker/seccomp-profile.json"
+
+[security.auth_mount_mode]
+# Mount mode experiment controls for auth passthrough paths (ro|rw).
+codex_dot_codex = "rw"
+claude_dot_claude = "rw"
+claude_config = "rw"
+claude_state = "rw"
+claude_share = "rw"
+claude_cache = "rw"
+
 [agents.claude]
 base_command = "claude"
 safe_args = []

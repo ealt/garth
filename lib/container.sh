@@ -333,22 +333,92 @@ garth_container_name() {
   echo "${name:0:80}"
 }
 
+garth_container_auth_mount_mode() {
+  local key="$1"
+  local default_mode="${2:-rw}"
+  local env_key
+  env_key=$(echo "$key" | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9]/_/g')
+  local env_var="GARTH_SECURITY_AUTH_MOUNT_MODE_${env_key}"
+  local mode="${!env_var:-$default_mode}"
+  if [[ "$mode" != "ro" && "$mode" != "rw" ]]; then
+    mode="$default_mode"
+  fi
+  printf '%s' "$mode"
+}
+
+garth_container_seccomp_profile_path() {
+  local profile="${GARTH_SECURITY_SECCOMP_PROFILE:-docker/seccomp-profile.json}"
+  [[ -n "$profile" ]] || return 1
+
+  if [[ "$profile" != /* ]]; then
+    local root
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    profile="${root}/${profile}"
+  fi
+
+  [[ -f "$profile" ]] || return 1
+  printf '%s' "$profile"
+}
+
+garth_container_emit_seccomp_opt_lines() {
+  local profile
+  profile=$(garth_container_seccomp_profile_path) || return 0
+  echo "--security-opt"
+  echo "seccomp=${profile}"
+}
+
+garth_container_emit_protected_path_mounts_lines() {
+  local worktree="$1"
+  local sandbox_workdir="$2"
+  local protected_json="${GARTH_SECURITY_PROTECTED_PATHS_JSON:-[\".git/hooks\",\".git/config\",\".github\",\".gitmodules\"]}"
+  local count=0
+  local rel_path host_path container_path
+
+  while IFS= read -r rel_path; do
+    [[ -n "$rel_path" ]] || continue
+    rel_path="${rel_path#./}"
+    if [[ "$rel_path" == /* ]]; then
+      garth_log_warn "Ignoring absolute protected path outside worktree scope: $rel_path"
+      continue
+    fi
+
+    host_path="${worktree}/${rel_path}"
+    container_path="${sandbox_workdir}/${rel_path}"
+    if [[ -e "$host_path" ]]; then
+      echo "-v"
+      echo "${host_path}:${container_path}:ro"
+      count=$((count + 1))
+    fi
+  done < <(garth_json_array_to_lines "$protected_json" 2>/dev/null || true)
+
+  [[ "$count" -gt 0 ]]
+}
+
 garth_container_emit_auth_mounts_lines() {
   local agent="$1"
   local count=0
 
   if [[ "$agent" == "codex" ]]; then
+    local codex_mode
+    codex_mode=$(garth_container_auth_mount_mode "codex_dot_codex" "rw")
     if [[ -d "$HOME/.codex" ]]; then
       echo "-v"
-      echo "$HOME/.codex:/home/agent/.codex:rw"
+      echo "$HOME/.codex:/home/agent/.codex:${codex_mode}"
       count=$((count + 1))
     fi
   fi
 
   if [[ "$agent" == "claude" ]]; then
+    local claude_dot_claude_mode claude_config_mode claude_state_mode claude_share_mode claude_cache_mode
+    claude_dot_claude_mode=$(garth_container_auth_mount_mode "claude_dot_claude" "rw")
+    claude_config_mode=$(garth_container_auth_mount_mode "claude_config" "rw")
+    claude_state_mode=$(garth_container_auth_mount_mode "claude_state" "rw")
+    claude_share_mode=$(garth_container_auth_mount_mode "claude_share" "rw")
+    claude_cache_mode=$(garth_container_auth_mount_mode "claude_cache" "rw")
+
     if [[ -d "$HOME/.claude" ]]; then
       echo "-v"
-      echo "$HOME/.claude:/home/agent/.claude:rw"
+      echo "$HOME/.claude:/home/agent/.claude:${claude_dot_claude_mode}"
       count=$((count + 1))
     fi
     if [[ -f "$HOME/.claude.json" ]]; then
@@ -358,7 +428,7 @@ garth_container_emit_auth_mounts_lines() {
     fi
     if [[ -d "$HOME/.config/claude" ]]; then
       echo "-v"
-      echo "$HOME/.config/claude:/home/agent/.config/claude:rw"
+      echo "$HOME/.config/claude:/home/agent/.config/claude:${claude_config_mode}"
       count=$((count + 1))
     fi
     # Claude may persist auth/session state across these XDG paths.
@@ -373,17 +443,17 @@ garth_container_emit_auth_mounts_lines() {
     done
     if [[ -d "$HOME/.local/state/claude" ]]; then
       echo "-v"
-      echo "$HOME/.local/state/claude:/home/agent/.local/state/claude:rw"
+      echo "$HOME/.local/state/claude:/home/agent/.local/state/claude:${claude_state_mode}"
       count=$((count + 1))
     fi
     if [[ -d "$HOME/.local/share/claude" ]]; then
       echo "-v"
-      echo "$HOME/.local/share/claude:/home/agent/.local/share/claude:rw"
+      echo "$HOME/.local/share/claude:/home/agent/.local/share/claude:${claude_share_mode}"
       count=$((count + 1))
     fi
     if [[ -d "$HOME/.cache/claude" ]]; then
       echo "-v"
-      echo "$HOME/.cache/claude:/home/agent/.cache/claude:rw"
+      echo "$HOME/.cache/claude:/home/agent/.cache/claude:${claude_cache_mode}"
       count=$((count + 1))
     fi
   fi
@@ -441,6 +511,7 @@ garth_container_args_lines() {
   echo "--cap-drop=ALL"
   echo "--security-opt"
   echo "no-new-privileges:true"
+  garth_container_emit_seccomp_opt_lines
   echo "--pids-limit"
   echo "512"
   echo "--read-only"
@@ -460,6 +531,7 @@ garth_container_args_lines() {
   echo "$network"
   echo "-v"
   echo "${worktree}:${sandbox_workdir}"
+  garth_container_emit_protected_path_mounts_lines "$worktree" "$sandbox_workdir" || true
   echo "-v"
   echo "${token_dir}:/run/garth:ro"
   if [[ "$auth_passthrough_enabled" == "true" ]]; then
@@ -518,6 +590,7 @@ garth_container_shell_args_lines() {
   echo "--cap-drop=ALL"
   echo "--security-opt"
   echo "no-new-privileges:true"
+  garth_container_emit_seccomp_opt_lines
   echo "--pids-limit"
   echo "512"
   echo "--read-only"
@@ -533,6 +606,7 @@ garth_container_shell_args_lines() {
   echo "$network"
   echo "-v"
   echo "${worktree}:${sandbox_workdir}"
+  garth_container_emit_protected_path_mounts_lines "$worktree" "$sandbox_workdir" || true
   echo "-v"
   echo "${token_dir}:/run/garth:ro"
   if [[ "$auth_passthrough_enabled" == "true" ]]; then

@@ -242,6 +242,75 @@ sleep_with_session_guard() {
   return 0
 }
 
+garth_is_sensitive_changed_path() {
+  local path="$1"
+  case "$path" in
+    .git/hooks/*|.git/config|.github/*|.github/workflows/*|Makefile|*.sh|.circleci/*|.gitlab-ci.yml|Jenkinsfile)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+garth_post_session_report() {
+  local session="$1"
+  local session_dir="$2"
+  local worktree="$3"
+
+  [[ -n "$worktree" ]] || return 0
+  if ! git -C "$worktree" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local diff_stat
+  diff_stat=$(git -C "$worktree" diff --stat 2>/dev/null || true)
+  if [[ -n "$diff_stat" ]]; then
+    garth_log_info "Post-session diff summary ($session):"
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      echo "  $line"
+    done <<< "$diff_stat"
+  fi
+
+  local -a changed_paths=()
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    changed_paths+=("$path")
+  done < <(
+    {
+      git -C "$worktree" diff --name-only
+      git -C "$worktree" diff --cached --name-only
+      git -C "$worktree" ls-files --others --exclude-standard
+    } 2>/dev/null | sed '/^$/d' | sort -u
+  )
+
+  local -a sensitive_paths=()
+  local path
+  for path in "${changed_paths[@]:-}"; do
+    if garth_is_sensitive_changed_path "$path"; then
+      sensitive_paths+=("$path")
+    fi
+  done
+
+  if [[ ${#sensitive_paths[@]} -gt 0 ]]; then
+    local sensitive_csv
+    sensitive_csv=$(garth_join_by "," "${sensitive_paths[@]}")
+    garth_log_warn "Sensitive paths changed in session '$session': $sensitive_csv"
+    garth_audit_log "$session_dir" "post_session_change_report" \
+      "session=$session" \
+      "worktree=$worktree" \
+      "sensitive_paths_csv=$sensitive_csv" \
+      "sensitive_count=${#sensitive_paths[@]}"
+  else
+    garth_audit_log "$session_dir" "post_session_change_report" \
+      "session=$session" \
+      "worktree=$worktree" \
+      "sensitive_count=0"
+  fi
+}
+
 cmd_boot() {
   local dir=""
   local agents_csv=""
@@ -417,12 +486,25 @@ HELP
     local minted_file
     minted_file=$(mktemp "${TMPDIR:-/tmp}/garth-minted-token.XXXXXX") || return 1
     garth_register_cleanup_path "$minted_file"
-    mint_token_for_repo "$repo_root" > "$minted_file" || return 3
+    if ! mint_token_for_repo "$repo_root" > "$minted_file"; then
+      garth_audit_log "$session_dir" "token_mint_failure" \
+        "session=$session" \
+        "repo_root=$repo_root"
+      return 3
+    fi
     IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo < "$minted_file"
   fi
 
   local token_file
   token_file=$(garth_write_token_file "$session_dir" "$token")
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    garth_audit_log "$session_dir" "token_mint_success" \
+      "session=$session" \
+      "owner_repo=$owner_repo" \
+      "installation_id=$installation_id" \
+      "token=$token" \
+      "token_expires_at=$expires_at"
+  fi
 
   local agent
   for agent in "${GARTH_SELECTED_AGENTS[@]}"; do
@@ -471,6 +553,23 @@ HELP
     write_state_value "$session_dir" "safety_mode" "$safety_mode"
     write_state_value "$session_dir" "installation_id" "$installation_id"
     write_state_value "$session_dir" "token_file" "$token_file"
+    garth_audit_log "$session_dir" "session_start" \
+      "session=$session" \
+      "repo_root=$repo_root" \
+      "worktree=$abs_dir" \
+      "branch=$branch" \
+      "agents=$agents_csv_effective" \
+      "sandbox=$sandbox" \
+      "network=$network" \
+      "safety_mode=$safety_mode" \
+      "owner_repo=$owner_repo" \
+      "installation_id=$installation_id" \
+      "token_expires_at=$expires_at"
+    if [[ -n "$auth_passthrough_csv" ]]; then
+      garth_audit_log "$session_dir" "auth_passthrough_enabled" \
+        "session=$session" \
+        "auth_passthrough=$auth_passthrough_csv"
+    fi
 
     if [[ "$GARTH_TOKEN_REFRESH_ENABLED" == "true" ]]; then
       "$GARTH_BIN_PATH" internal-refresh \
@@ -478,6 +577,9 @@ HELP
         --session "$session" \
         --session-dir "$session_dir" >/dev/null 2>&1 &
       write_state_value "$session_dir" "refresher_pid" "$!"
+      garth_audit_log "$session_dir" "token_refresher_started" \
+        "session=$session" \
+        "refresher_pid=$!"
     fi
   fi
 
@@ -505,7 +607,20 @@ HELP
   fi
 
   garth_log_info "Starting zellij session: $session"
-  garth_zellij_launch "$session" "$layout_file"
+  if ! garth_zellij_launch "$session" "$layout_file"; then
+    garth_audit_log "$session_dir" "container_start_failure" \
+      "session=$session" \
+      "reason=zellij_launch_failed"
+    return 1
+  fi
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    garth_audit_log "$session_dir" "container_start" \
+      "session=$session" \
+      "agents=$agents_csv_effective" \
+      "sandbox=$sandbox" \
+      "network=$network" \
+      "safety_mode=$safety_mode"
+  fi
 
   # If session no longer exists after detach/exit, clean stale session state.
   if [[ "$GARTH_DRY_RUN" != "true" && "$GARTH_ZELLIJ_LAUNCH_ASYNC" == "true" ]]; then
@@ -526,6 +641,9 @@ HELP
     else
       garth_log_warn "  zellij -s \"$session\" --new-session-with-layout \"$layout_file\""
     fi
+    garth_audit_log "$session_dir" "session_start_failure" \
+      "session=$session" \
+      "reason=session_not_running_after_launch"
     "$GARTH_BIN_PATH" stop "$session" --yes >/dev/null 2>&1 || true
   fi
 }
@@ -698,6 +816,7 @@ HELP
       echo "[dry-run] source $env_file && export GITHUB_TOKEN=... && $cmd"
       return 0
     fi
+    local rc=0
     (
       cd "$abs_dir"
       set -a
@@ -706,7 +825,26 @@ HELP
       export GITHUB_TOKEN
       GITHUB_TOKEN=$(cat "$tmp_dir/github_token")
       bash -lc "$cmd"
-    )
+    ) || rc=$?
+    if ((rc != 0)); then
+      garth_audit_log "$tmp_dir" "agent_exit_nonzero" \
+        "agent=$agent" \
+        "repo_root=$repo_root" \
+        "worktree=$abs_dir" \
+        "sandbox=$sandbox" \
+        "network=$network" \
+        "safety_mode=$safety_mode" \
+        "exit_code=$rc"
+      return "$rc"
+    fi
+    garth_audit_log "$tmp_dir" "agent_exit" \
+      "agent=$agent" \
+      "repo_root=$repo_root" \
+      "worktree=$abs_dir" \
+      "sandbox=$sandbox" \
+      "network=$network" \
+      "safety_mode=$safety_mode" \
+      "exit_code=0"
     return 0
   fi
 
@@ -730,7 +868,27 @@ HELP
     return 0
   fi
 
-  docker "${args[@]}"
+  local docker_rc=0
+  docker "${args[@]}" || docker_rc=$?
+  if ((docker_rc != 0)); then
+    garth_audit_log "$tmp_dir" "agent_exit_nonzero" \
+      "agent=$agent" \
+      "repo_root=$repo_root" \
+      "worktree=$abs_dir" \
+      "sandbox=$sandbox" \
+      "network=$network" \
+      "safety_mode=$safety_mode" \
+      "exit_code=$docker_rc"
+    return "$docker_rc"
+  fi
+  garth_audit_log "$tmp_dir" "agent_exit" \
+    "agent=$agent" \
+    "repo_root=$repo_root" \
+    "worktree=$abs_dir" \
+    "sandbox=$sandbox" \
+    "network=$network" \
+    "safety_mode=$safety_mode" \
+    "exit_code=0"
 }
 
 cmd_token() {
@@ -944,23 +1102,45 @@ stop_session() {
   session_dir=$(session_dir_for "$session")
   [[ -d "$session_dir" ]] || return 0
 
+  local repo_root worktree branch agents_csv
+  repo_root=$(read_state_value "$session_dir" "repo_root")
+  worktree=$(read_state_value "$session_dir" "worktree")
+  branch=$(read_state_value "$session_dir" "branch")
+  agents_csv=$(read_state_value "$session_dir" "agents_csv")
+  garth_audit_log "$session_dir" "session_stop_requested" \
+    "session=$session" \
+    "repo_root=$repo_root" \
+    "worktree=$worktree" \
+    "branch=$branch" \
+    "agents=$agents_csv"
+
   rm -f "$session_dir/active" 2>/dev/null || true
 
   local pid
   pid=$(read_state_value "$session_dir" "refresher_pid")
   if [[ -n "$pid" ]]; then
     kill "$pid" >/dev/null 2>&1 || true
+    garth_audit_log "$session_dir" "token_refresher_stopped" \
+      "session=$session" \
+      "refresher_pid=$pid"
   fi
 
   if command -v docker >/dev/null 2>&1; then
     garth_stop_containers_for_session "$session"
+    garth_audit_log "$session_dir" "container_stop" \
+      "session=$session"
   fi
 
   garth_zellij_kill_session "$session"
+  garth_audit_log "$session_dir" "zellij_stop" \
+    "session=$session"
+  garth_post_session_report "$session" "$session_dir" "$worktree"
 
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     echo "[dry-run] rm -rf $session_dir"
   else
+    garth_audit_log "$session_dir" "session_stop_complete" \
+      "session=$session"
     rm -rf "$session_dir"
   fi
 }
@@ -1490,6 +1670,9 @@ cmd_internal_refresh() {
   retry_window_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_FAILURE_RETRY_WINDOW")
   initial_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_INITIAL_INTERVAL")
   max_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_MAX_INTERVAL")
+  garth_audit_log "$session_dir" "token_refresher_loop_started" \
+    "session=$session" \
+    "repo_root=$repo_root"
 
   while [[ -f "$session_dir/active" ]]; do
     local now expires_epoch wait_seconds
@@ -1512,6 +1695,7 @@ cmd_internal_refresh() {
 
     while [[ -f "$session_dir/active" ]]; do
       local token_line
+      local token_cmd_rc=0
       if token_line=$("$GARTH_BIN_PATH" token "$repo_root" --machine 2>/dev/null); then
         local token expires_at refreshed_epoch installation_id owner_repo
         IFS=$'\t' read -r token expires_at refreshed_epoch installation_id owner_repo <<< "$token_line"
@@ -1519,20 +1703,39 @@ cmd_internal_refresh() {
         write_state_value "$session_dir" "token_expires_at" "$expires_at"
         write_state_value "$session_dir" "token_expires_epoch" "$refreshed_epoch"
         write_state_value "$session_dir" "token_state" "ok"
+        garth_audit_log "$session_dir" "token_refresh_success" \
+          "session=$session" \
+          "owner_repo=$owner_repo" \
+          "installation_id=$installation_id" \
+          "token=$token" \
+          "token_expires_at=$expires_at"
         success=true
         break
       fi
+      token_cmd_rc=$?
+      garth_audit_log "$session_dir" "token_refresh_failure" \
+        "session=$session" \
+        "repo_root=$repo_root" \
+        "exit_code=$token_cmd_rc"
 
       local elapsed
       elapsed=$(( $(garth_now_epoch) - attempt_started ))
 
       if ((retry_window_seconds == 0)); then
         write_state_value "$session_dir" "token_state" "degraded"
+        garth_audit_log "$session_dir" "token_refresh_degraded" \
+          "session=$session" \
+          "state=degraded" \
+          "reason=retry_window_disabled"
         break
       fi
 
       if ((retry_window_seconds != -1 && elapsed >= retry_window_seconds)); then
         write_state_value "$session_dir" "token_state" "degraded"
+        garth_audit_log "$session_dir" "token_refresh_degraded" \
+          "session=$session" \
+          "state=degraded" \
+          "reason=retry_window_exceeded"
         break
       fi
 
@@ -1550,6 +1753,8 @@ cmd_internal_refresh() {
       sleep_with_session_guard "$max_interval_seconds" "$session_dir" || break
     fi
   done
+  garth_audit_log "$session_dir" "token_refresher_loop_stopped" \
+    "session=$session"
 }
 
 doctor_try_op_signin() {

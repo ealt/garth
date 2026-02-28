@@ -1,0 +1,22 @@
+{
+  "terminal.integrated.profiles.osx": {
+    "Garth Sandbox": {
+      "path": "/bin/bash",
+      "args": [
+        "-lc",
+        "${workspaceFolder}/.vscode/garth-sandbox-shell.sh"
+      ],
+      "overrideName": true
+    }
+  },
+  "terminal.integrated.defaultProfile.osx": "Garth Sandbox",
+  "python.defaultInterpreterPath": "/opt/homebrew/bin/python3",
+  "python.pythonPath": "/opt/homebrew/bin/python3",
+  "python.disableInstallationCheck": true,
+  "cursorpyright.importStrategy": "useBundled",
+  "terminal.integrated.env.osx": {
+    "PATH": "/opt/homebrew/bin:${env:PATH}",
+    "PYTHON": "/opt/homebrew/bin/python3",
+    "PYTHON3": "/opt/homebrew/bin/python3"
+  }
+}

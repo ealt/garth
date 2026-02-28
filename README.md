@@ -146,6 +146,7 @@ Key sections:
 - `[github_app]`: 1Password refs and installation selection strategy
 - `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
 - `[features]`: optional runtime/build features (for example Neovim support)
+- `[security]`: protected read-only worktree paths, seccomp profile path, and auth passthrough mount modes (`ro|rw`)
 - `[agents.<name>]`: command + safe/permissive args + API key ref
 
 Validation is strict for known fields and warning-only for unknown fields.
@@ -194,7 +195,7 @@ Auth note:
 - when `claude` is in auth passthrough, `garth` mounts Claude auth/state paths
   (`~/.claude`, `~/.config/claude`, `~/.local/state/claude`,
   `~/.local/share/claude`, `~/.cache/claude`) so login state persists across
-  container restarts
+  container restarts (mount mode is configurable via `[security.auth_mount_mode]`)
 - `~/.claude.json` is not mounted at `/home/agent/.claude.json`; instead it is
   mounted read-only to a side path and used as a startup seed, then `garth`
   merges/restores OAuth state from Claude backups as needed
@@ -249,9 +250,12 @@ garth stop --all --yes
 - Container defaults:
   - `--cap-drop=ALL`
   - `--security-opt no-new-privileges:true`
+  - `--security-opt seccomp=<repo>/docker/seccomp-profile.json` (custom profile)
   - `--pids-limit=512`
   - `--read-only`
   - tmpfs mounts for writable transient paths
+  - read-only overlays for sensitive repo paths (`.git/hooks`, `.git/config`, `.github`, `.gitmodules`)
+- Session events are written to `$XDG_STATE_HOME/garth/sessions/<session>/audit.log` (JSONL, `0600`) with secret redaction.
 
 ## Platform Notes
 

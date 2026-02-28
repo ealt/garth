@@ -219,3 +219,109 @@ garth_slugify_branch() {
   fi
   echo "$slug"
 }
+
+garth_token_prefix() {
+  local token="$1"
+  [[ -n "$token" ]] || return 0
+  local prefix="${token:0:8}"
+  if [[ ${#token} -gt 8 ]]; then
+    printf '%s...' "$prefix"
+  else
+    printf '%s' "$prefix"
+  fi
+}
+
+garth_op_ref_vault_name() {
+  local ref="$1"
+  if [[ "$ref" =~ ^op://([^/]+)/ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
+garth_redact_secret_text() {
+  local value="$1"
+  garth_python - << 'PY' "$value"
+import re
+import sys
+
+text = sys.argv[1]
+patterns = [
+    (r'op://[^\s"\']+', "op://[REDACTED]"),
+    (r"\bghs_[A-Za-z0-9_]+\b", "ghs_[REDACTED]"),
+    (r"\bgithub_pat_[A-Za-z0-9_]+\b", "github_pat_[REDACTED]"),
+    (r"\bsk-[A-Za-z0-9_-]{12,}\b", "sk-[REDACTED]"),
+    (r"(Bearer\s+)[A-Za-z0-9._-]+", r"\1[REDACTED]"),
+]
+
+for pattern, replacement in patterns:
+    text = re.sub(pattern, replacement, text)
+
+print(text)
+PY
+}
+
+garth_audit_log() {
+  local session_dir="$1"
+  local event="$2"
+  shift 2 || true
+
+  [[ -n "$session_dir" ]] || return 0
+  local audit_file="$session_dir/audit.log"
+  if [[ ! -f "$audit_file" ]]; then
+    umask 077
+    : > "$audit_file"
+    chmod 600 "$audit_file"
+  fi
+
+  local timestamp
+  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local -a fields=()
+  fields+=("timestamp=${timestamp}")
+  fields+=("event=${event}")
+
+  local pair key value vault
+  for pair in "$@"; do
+    [[ "$pair" == *=* ]] || continue
+    key="${pair%%=*}"
+    value="${pair#*=}"
+    case "$key" in
+      token|github_token|access_token)
+        fields+=("token_prefix=$(garth_token_prefix "$value")")
+        ;;
+      api_key|api_key_value|secret|secret_value)
+        ;;
+      api_key_env|token_expires_at|session|repo_root|worktree|branch|owner_repo|agents|agent|network|sandbox|safety_mode|state|installation_id|exit_code|sensitive_paths_csv|sensitive_count|refresher_pid|auth_passthrough)
+        fields+=("${key}=${value}")
+        ;;
+      *ref)
+        vault=$(garth_op_ref_vault_name "$value")
+        if [[ -n "$vault" ]]; then
+          fields+=("ref_vault=${vault}")
+        fi
+        ;;
+      *)
+        fields+=("${key}=$(garth_redact_secret_text "$value")")
+        ;;
+    esac
+  done
+
+  local json_line
+  if ! json_line=$(garth_python - << 'PY' "${fields[@]}"
+import json
+import sys
+
+obj = {}
+for raw in sys.argv[1:]:
+    if "=" not in raw:
+        continue
+    key, value = raw.split("=", 1)
+    obj[key] = value
+print(json.dumps(obj, separators=(",", ":")))
+PY
+  ); then
+    return 0
+  fi
+
+  printf '%s\n' "$json_line" >> "$audit_file"
+  chmod 600 "$audit_file" 2>/dev/null || true
+}
