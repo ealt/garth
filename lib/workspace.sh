@@ -5,6 +5,95 @@ if [[ -n "${GARTH_WORKSPACE_SH_LOADED:-}" ]]; then
 fi
 GARTH_WORKSPACE_SH_LOADED=1
 
+garth_cursor_binary_path() {
+  local candidates=(
+    "/Applications/Cursor.app/Contents/MacOS/Cursor"
+    "$HOME/Applications/Cursor.app/Contents/MacOS/Cursor"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+garth_gui_python_shim_dir() {
+  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/garth/gui-bin"
+}
+
+garth_ensure_gui_python_shim() {
+  if [[ ! -x "/opt/homebrew/bin/python3" ]]; then
+    return 1
+  fi
+
+  local shim_dir
+  shim_dir="$(garth_gui_python_shim_dir)"
+  mkdir -p "$shim_dir"
+  chmod 700 "$shim_dir" 2>/dev/null || true
+
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    echo "[dry-run] ln -sf /opt/homebrew/bin/python3 $shim_dir/python"
+    return 0
+  fi
+
+  ln -sf "/opt/homebrew/bin/python3" "$shim_dir/python" 2>/dev/null || return 1
+  chmod 755 "$shim_dir/python" 2>/dev/null || true
+  return 0
+}
+
+garth_ensure_macos_gui_path() {
+  if ! garth_is_macos; then
+    return 0
+  fi
+  if [[ "${GARTH_SKIP_GUI_PATH_SET:-false}" == "true" ]]; then
+    return 0
+  fi
+  if [[ ! -x "/bin/launchctl" ]]; then
+    return 0
+  fi
+
+  local desired_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  local desired_python=""
+  if [[ ! -x "/opt/homebrew/bin/python3" ]]; then
+    desired_path="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  else
+    desired_python="/opt/homebrew/bin/python3"
+    if garth_ensure_gui_python_shim; then
+      desired_path="$(garth_gui_python_shim_dir):${desired_path}"
+    fi
+  fi
+
+  local current_path
+  current_path=$(/bin/launchctl getenv PATH 2>/dev/null || true)
+  local current_python
+  current_python=$(/bin/launchctl getenv PYTHON3 2>/dev/null || true)
+
+  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+    echo "[dry-run] /bin/launchctl setenv PATH $desired_path"
+    if [[ -n "$desired_python" ]]; then
+      echo "[dry-run] /bin/launchctl setenv PYTHON $desired_python"
+      echo "[dry-run] /bin/launchctl setenv PYTHON3 $desired_python"
+    fi
+    return 0
+  fi
+
+  if [[ "$current_path" != "$desired_path" ]]; then
+    if ! /bin/launchctl setenv PATH "$desired_path" >/dev/null 2>&1; then
+      garth_log_warn "Unable to set launchctl PATH for GUI apps"
+      return 1
+    fi
+  fi
+
+  if [[ -n "$desired_python" && "$current_python" != "$desired_python" ]]; then
+    /bin/launchctl setenv PYTHON "$desired_python" >/dev/null 2>&1 || true
+    /bin/launchctl setenv PYTHON3 "$desired_python" >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+
 garth_launch_cursor() {
   local dir="$1"
 
@@ -15,6 +104,34 @@ garth_launch_cursor() {
 
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     echo "[dry-run] open -a Cursor $dir"
+    return 0
+  fi
+
+  garth_ensure_macos_gui_path >/dev/null 2>&1 || true
+
+  local cursor_bin
+  if cursor_bin=$(garth_cursor_binary_path); then
+    local launch_path="$PATH"
+    local launch_python=""
+    local shim_dir=""
+    if [[ "$launch_path" != *"/opt/homebrew/bin"* && -x "/opt/homebrew/bin/python3" ]]; then
+      launch_path="/opt/homebrew/bin:$launch_path"
+      launch_python="/opt/homebrew/bin/python3"
+    elif [[ -x "/opt/homebrew/bin/python3" ]]; then
+      launch_python="/opt/homebrew/bin/python3"
+    fi
+    if shim_dir=$(garth_gui_python_shim_dir 2>/dev/null) && [[ -x "$shim_dir/python" ]]; then
+      case ":$launch_path:" in
+        *":$shim_dir:"*) ;;
+        *) launch_path="$shim_dir:$launch_path" ;;
+      esac
+    fi
+    if [[ -n "$launch_python" ]]; then
+      env PATH="$launch_path" PYTHON="$launch_python" PYTHON3="$launch_python" "$cursor_bin" "$dir" >/dev/null 2>&1 &
+    else
+      env PATH="$launch_path" "$cursor_bin" "$dir" >/dev/null 2>&1 &
+    fi
+    disown || true
     return 0
   fi
 
@@ -144,6 +261,10 @@ if not python_path:
 
 data["python.defaultInterpreterPath"] = python_path
 data["python.pythonPath"] = python_path
+# Avoid extension-level "install python" probes on macOS stubs.
+data["python.disableInstallationCheck"] = True
+# Cursor's pyright fork defaults to fromEnvironment and may invoke bare 'python'.
+data["cursorpyright.importStrategy"] = "useBundled"
 
 terminal_env = data.get(terminal_env_key)
 if not isinstance(terminal_env, dict):
@@ -157,6 +278,8 @@ if python_bin_dir:
             terminal_env["PATH"] = f"{python_bin_dir}:{path_expr}"
     else:
         terminal_env["PATH"] = f"{python_bin_dir}:${{env:PATH}}"
+    terminal_env["PYTHON"] = python_path
+    terminal_env["PYTHON3"] = python_path
 
 data[terminal_env_key] = terminal_env
 

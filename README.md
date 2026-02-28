@@ -104,6 +104,7 @@ Debug launch toggles (env vars):
 - `GARTH_SKIP_GUI=true`: skip workspace move + Cursor + Chrome launch
 - `GARTH_SKIP_CURSOR=true`: skip Cursor setup/launch only
 - `GARTH_SKIP_CHROME=true`: skip Chrome launch only
+- `GARTH_SKIP_GUI_PATH_SET=true`: skip macOS GUI PATH update (`launchctl setenv PATH ...`)
 - `GARTH_TRACE_PYTHON=true`: log which Python runtime garth is using
 
 If you prefer interactive setup prompts:
@@ -282,7 +283,11 @@ garth stop --all --yes
 - `Session already exists`: run `garth stop <session>` first
 - `macOS asks to install Developer Tools for python3`: ensure
   `/opt/homebrew/bin/python3` exists (`brew install python`); `garth` prefers
-  that interpreter at runtime
+  that interpreter at runtime. On macOS, `garth boot` also updates GUI app PATH
+  via `launchctl setenv PATH ...`; it also creates a `python` shim at
+  `~/.local/state/garth/gui-bin/python` for tools that invoke `python` (not
+  `python3`). Fully quit/reopen Cursor after boot so the new environment is
+  picked up.
 
 ## Branding
 
