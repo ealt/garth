@@ -44,6 +44,18 @@ garth_agent_command_string() {
   printf '%s' "$cmd"
 }
 
+garth_agent_primary_binary() {
+  local agent="$1"
+  local base_command
+  base_command=$(garth_agent_field "$agent" "BASE_COMMAND")
+  [[ -n "$base_command" ]] || return 1
+
+  local primary=""
+  IFS=' ' read -r primary _ <<< "$base_command"
+  [[ -n "$primary" ]] || return 1
+  printf '%s' "$primary"
+}
+
 # Creates per-agent env file (0600) and prints path.
 garth_prepare_agent_env_file() {
   local session_dir="$1"
@@ -129,7 +141,7 @@ garth_container_emit_auth_mounts_lines() {
   if [[ "$agent" == "codex" ]]; then
     if [[ -d "$HOME/.codex" ]]; then
       echo "-v"
-      echo "$HOME/.codex:/home/agent/.codex:ro"
+      echo "$HOME/.codex:/home/agent/.codex:rw"
       count=$((count + 1))
     fi
   fi
@@ -137,17 +149,17 @@ garth_container_emit_auth_mounts_lines() {
   if [[ "$agent" == "claude" ]]; then
     if [[ -d "$HOME/.claude" ]]; then
       echo "-v"
-      echo "$HOME/.claude:/home/agent/.claude:ro"
+      echo "$HOME/.claude:/home/agent/.claude:rw"
       count=$((count + 1))
     fi
     if [[ -f "$HOME/.claude.json" ]]; then
       echo "-v"
-      echo "$HOME/.claude.json:/home/agent/.claude.json:ro"
+      echo "$HOME/.claude.json:/home/agent/.claude.json:rw"
       count=$((count + 1))
     fi
     if [[ -d "$HOME/.config/claude" ]]; then
       echo "-v"
-      echo "$HOME/.config/claude:/home/agent/.config/claude:ro"
+      echo "$HOME/.config/claude:/home/agent/.config/claude:rw"
       count=$((count + 1))
     fi
   fi
@@ -195,7 +207,7 @@ garth_container_args_lines() {
   echo "--tmpfs"
   echo "/tmp:rw,noexec,nosuid,size=256m"
   echo "--tmpfs"
-  echo "/home/agent/.cache:rw,noexec,nosuid,size=512m"
+  echo "/home/agent:rw,exec,nosuid,size=1024m,mode=1777"
   echo "--memory"
   echo "8g"
   echo "--cpus"
@@ -214,6 +226,14 @@ garth_container_args_lines() {
   fi
   echo "--env-file"
   echo "$env_file"
+  echo "--env"
+  echo "HOME=/home/agent"
+  echo "--env"
+  echo "XDG_CACHE_HOME=/home/agent/.cache"
+  echo "--env"
+  echo "XDG_CONFIG_HOME=/home/agent/.config"
+  echo "--env"
+  echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "-w"
   echo "/work"
   echo "$image"
@@ -222,11 +242,110 @@ garth_container_args_lines() {
   echo "$command_string"
 }
 
+garth_container_shell_args_lines() {
+  local session="$1"
+  local repo_root="$2"
+  local worktree="$3"
+  local token_dir="$4"
+  local network="$5"
+  local image_prefix="$6"
+  local shell_agent="${7:-claude}"
+  local image="${image_prefix}-${shell_agent}:latest"
+  local name
+  name=$(garth_container_name "$session" "shell")
+
+  echo "run"
+  echo "-it"
+  echo "--rm"
+  echo "--name"
+  echo "$name"
+  echo "--label"
+  echo "garth.session=$session"
+  echo "--label"
+  echo "garth.repo=$repo_root"
+  echo "--label"
+  echo "garth.agent=shell"
+  echo "--cap-drop=ALL"
+  echo "--security-opt"
+  echo "no-new-privileges:true"
+  echo "--pids-limit"
+  echo "512"
+  echo "--read-only"
+  echo "--tmpfs"
+  echo "/tmp:rw,noexec,nosuid,size=256m"
+  echo "--tmpfs"
+  echo "/home/agent:rw,exec,nosuid,size=1024m,mode=1777"
+  echo "--network"
+  echo "$network"
+  echo "-v"
+  echo "${worktree}:/work"
+  echo "-v"
+  echo "${token_dir}:/run/garth:ro"
+  echo "--env"
+  echo "GARTH_GITHUB_TOKEN_FILE=/run/garth/github_token"
+  echo "--env"
+  echo "HOME=/home/agent"
+  echo "--env"
+  echo "XDG_CACHE_HOME=/home/agent/.cache"
+  echo "--env"
+  echo "XDG_CONFIG_HOME=/home/agent/.config"
+  echo "--env"
+  echo "XDG_STATE_HOME=/home/agent/.local/state"
+  echo "-w"
+  echo "/work"
+  echo "$image"
+  echo "bash"
+}
+
 garth_docker_build_agent_image() {
   local agent="$1"
   local image_prefix="$2"
   garth_require_cmd docker
   garth_run_cmd docker build --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+}
+
+garth_docker_image_has_binary() {
+  local image="$1"
+  local binary="$2"
+  garth_require_cmd docker
+  docker run --rm --entrypoint /bin/bash "$image" -lc "command -v $(printf '%q' "$binary") >/dev/null"
+}
+
+garth_ensure_agent_image_ready() {
+  local agent="$1"
+  local image_prefix="$2"
+  local image="${image_prefix}-${agent}:latest"
+  local state
+  local binary
+
+  binary=$(garth_agent_primary_binary "$agent") || {
+    garth_log_error "Unable to determine primary binary for agent '$agent'"
+    return 1
+  }
+
+  state=$(garth_docker_image_state "$image")
+  case "$state" in
+    present) ;;
+    missing)
+      garth_log_info "Docker image missing for '$agent'; building $image"
+      garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
+      ;;
+    unavailable:*)
+      garth_log_error "Docker unavailable while checking $image: ${state#unavailable:}"
+      return 1
+      ;;
+  esac
+
+  if garth_docker_image_has_binary "$image" "$binary"; then
+    return 0
+  fi
+
+  garth_log_warn "Image $image is missing expected binary '$binary'; rebuilding"
+  garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
+  if ! garth_docker_image_has_binary "$image" "$binary"; then
+    garth_log_error "Image $image still missing '$binary' after rebuild"
+    return 1
+  fi
 }
 
 garth_stop_containers_for_session() {

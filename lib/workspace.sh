@@ -26,6 +26,38 @@ garth_launch_chrome_profile() {
   local profile_name="$2"
   local url="$3"
 
+  if [[ -z "$profiles_root" ]]; then
+    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+      echo "[dry-run] osascript Google Chrome new window -> $url"
+      return 0
+    fi
+
+    if ! garth_is_macos; then
+      garth_log_warn "Chrome launch skipped (non-macOS)"
+      return 0
+    fi
+
+    open -g -a "Google Chrome" >/dev/null 2>&1 || true
+
+    local escaped_url="$url"
+    escaped_url="${escaped_url//\\/\\\\}"
+    escaped_url="${escaped_url//\"/\\\"}"
+    if osascript \
+      -e "tell application \"Google Chrome\" to activate" \
+      -e "tell application \"Google Chrome\" to set _w to make new window" \
+      -e "tell application \"Google Chrome\" to set URL of active tab of _w to \"$escaped_url\"" \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+
+    if open -a "Google Chrome" "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    garth_log_warn "Failed to launch Chrome new window"
+    return 0
+  fi
+
   local expanded_root="${profiles_root/#\~/$HOME}"
 
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then

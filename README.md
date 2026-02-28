@@ -25,6 +25,7 @@ By default, agents do not get your home directory, SSH agent, or Docker socket.
 ## Features
 
 - Isolated agent runtime (`docker`) with strict hardening defaults
+- In docker mode, the main zellij shell pane is also containerized
 - GitHub App auth with token rotation from 1Password-managed secrets
 - Zellij session layout with one shell pane plus one pane per agent
 - Git worktree workflow for parallel branch/task execution
@@ -73,6 +74,7 @@ This repo bootstrap script:
 - on macOS, offers to install `aerospace` via Homebrew (auto in `--yes`)
 - skips GitHub App ref prompts when already done
 - auto-builds missing default Docker images when Docker is available
+- validates agent binaries in Docker images at boot and rebuilds if needed
 
 For automation/non-interactive runs:
 
@@ -120,9 +122,16 @@ Key sections:
   optional `auth_passthrough`
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
 - `[github_app]`: 1Password refs and installation selection strategy
+- `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
 - `[agents.<name>]`: command + safe/permissive args + API key ref
 
 Validation is strict for known fields and warning-only for unknown fields.
+
+Chrome note:
+
+- set `chrome.profiles_dir = ""` to open URLs in your default signed-in profile
+- set `chrome.profile_directory` (for example `"Default"`) to pin a specific
+  Chrome profile when opening a new window
 
 ## Usage
 

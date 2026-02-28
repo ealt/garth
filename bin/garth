@@ -280,6 +280,11 @@ HELP
 
   if [[ "$GARTH_DRY_RUN" != "true" && "$sandbox" == "docker" ]]; then
     garth_require_cmd docker
+    local image_agent
+    for image_agent in "${GARTH_SELECTED_AGENTS[@]}"; do
+      garth_ensure_agent_image_ready "$image_agent" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || \
+        garth_die "Docker image setup failed for agent '$image_agent'" 1
+    done
   fi
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
     garth_require_cmd zellij
@@ -291,6 +296,15 @@ HELP
   branch=$(garth_git_current_branch "$repo_root")
   repo_name=$(garth_git_repo_name "$repo_root")
   session=$(garth_git_session_name "$repo_name" "$branch")
+  if [[ "$(garth_zellij_session_state "$session")" != "missing" ]]; then
+    local base_session="$session"
+    local n=2
+    while [[ "$(garth_zellij_session_state "${base_session}-${n}")" != "missing" ]]; do
+      n=$((n + 1))
+    done
+    session="${base_session}-${n}"
+    garth_log_warn "Reusing session name is unavailable; using $session"
+  fi
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     session_dir=$(garth_make_temp_dir)
   else
@@ -298,7 +312,9 @@ HELP
 
     if [[ -d "$session_dir" ]]; then
       if [[ -f "$session_dir/active" ]]; then
-        if garth_zellij_list_sessions | grep -qx "$session"; then
+        local zellij_state
+        zellij_state=$(garth_zellij_session_state "$session")
+        if [[ "$zellij_state" == "running" ]]; then
           garth_die "Session already exists: $session (use 'garth stop $session' first)" 1
         fi
         garth_log_warn "Found stale active state for $session; cleaning it up"
@@ -401,7 +417,24 @@ HELP
   garth_zellij_launch "$session" "$layout_file"
 
   # If session no longer exists after detach/exit, clean stale session state.
+  if [[ "$GARTH_DRY_RUN" != "true" && "$GARTH_ZELLIJ_LAUNCH_ASYNC" == "true" ]]; then
+    local wait_s
+    for wait_s in 1 2 3 4 5; do
+      if garth_zellij_list_sessions | grep -qx "$session"; then
+        break
+      fi
+      sleep 1
+    done
+  fi
+
   if [[ "$GARTH_DRY_RUN" != "true" ]] && ! garth_zellij_list_sessions | grep -qx "$session"; then
+    garth_log_warn "zellij session did not start: $session"
+    garth_log_warn "If your terminal launcher failed, run manually:"
+    if garth_zellij_session_exists "$session"; then
+      garth_log_warn "  zellij attach \"$session\""
+    else
+      garth_log_warn "  zellij -s \"$session\" --new-session-with-layout \"$layout_file\""
+    fi
     "$GARTH_BIN_PATH" stop "$session" --yes >/dev/null 2>&1 || true
   fi
 }
@@ -586,6 +619,10 @@ HELP
   fi
 
   garth_require_cmd docker
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    garth_ensure_agent_image_ready "$agent" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || \
+      garth_die "Docker image setup failed for agent '$agent'" 1
+  fi
   local auth_passthrough_enabled=false
   if csv_contains_token "$auth_passthrough_csv" "$agent"; then
     auth_passthrough_enabled=true
@@ -1247,13 +1284,24 @@ cmd_setup() {
         garth_log_warn "Could not query Docker image state: $docker_issue"
         garth_log_warn "Skipping automatic Docker image build. Check Docker daemon/context."
       elif [[ ${#missing_agents[@]} -eq 0 ]]; then
-        garth_log_info "Default Docker images already exist; skipping build"
+        garth_log_info "Default Docker images exist; validating agent CLIs"
+        for agent in claude codex; do
+          if garth_ensure_agent_image_ready "$agent" "$image_prefix"; then
+            garth_log_success "Docker image ready: ${image_prefix}-${agent}:latest"
+          else
+            garth_log_warn "Docker image validation failed: ${image_prefix}-${agent}:latest"
+          fi
+        done
       else
         local missing_csv
         missing_csv=$(IFS=','; echo "${missing_agents[*]}")
         garth_log_info "Building missing default Docker image(s): ${missing_csv}"
         for agent in "${missing_agents[@]}"; do
-          garth_docker_build_agent_image "$agent" "$image_prefix" || true
+          if garth_ensure_agent_image_ready "$agent" "$image_prefix"; then
+            garth_log_success "Docker image ready: ${image_prefix}-${agent}:latest"
+          else
+            garth_log_warn "Docker image build/validation failed: ${image_prefix}-${agent}:latest"
+          fi
         done
       fi
     fi

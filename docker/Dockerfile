@@ -44,13 +44,21 @@ USER agent
 WORKDIR /work
 
 FROM base AS claude
-RUN npm install -g @anthropic-ai/claude-code || true
+USER root
+RUN npm install -g @anthropic-ai/claude-code
+USER agent
 
 FROM base AS codex
-RUN npm install -g @openai/codex || true
+USER root
+RUN npm install -g @openai/codex
+USER agent
 
 FROM base AS opencode
-RUN npm install -g opencode-ai || true
+USER root
+RUN npm install -g opencode-ai
+USER agent
 
 FROM base AS gemini
-RUN npm install -g @google/gemini-cli || true
+USER root
+RUN npm install -g @google/gemini-cli
+USER agent

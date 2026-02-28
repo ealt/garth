@@ -59,7 +59,7 @@ ALLOWED_GITHUB_APP = {
     "installation_id_ref",
     "installation_id_map",
 }
-ALLOWED_CHROME = {"profiles_dir"}
+ALLOWED_CHROME = {"profiles_dir", "profile_directory"}
 ALLOWED_AGENT = {
     "base_command",
     "command",  # Back-compat input form.
@@ -229,10 +229,13 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "profiles_dir": chrome_raw.get(
             "profiles_dir",
             "~/Library/Application Support/Chrome-ProjectProfiles",
-        )
+        ),
+        "profile_directory": chrome_raw.get("profile_directory", ""),
     }
-    if not isinstance(chrome["profiles_dir"], str) or not chrome["profiles_dir"].strip():
-        out.error("chrome.profiles_dir must be a non-empty string")
+    if not isinstance(chrome["profiles_dir"], str):
+        out.error("chrome.profiles_dir must be a string")
+    if not isinstance(chrome["profile_directory"], str):
+        out.error("chrome.profile_directory must be a string")
     norm["chrome"] = chrome
 
     agents_raw = raw.get("agents", {})
@@ -322,6 +325,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_GITHUB_APP_INSTALLATION_ID_MAP_JSON", gh["installation_id_map"])
 
     put("GARTH_CHROME_PROFILES_DIR", chrome["profiles_dir"])
+    put("GARTH_CHROME_PROFILE_DIRECTORY", chrome["profile_directory"])
 
     names = sorted(agents.keys())
     put("GARTH_AGENT_NAMES_CSV", ",".join(names))

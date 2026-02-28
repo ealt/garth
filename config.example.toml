@@ -23,7 +23,11 @@ installation_id_ref = ""
 installation_id_map = {}
 
 [chrome]
+# Set to "" to use your default signed-in Chrome profile.
 profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
+# Optional when profiles_dir = "": force a specific Chrome profile directory
+# (for example "Default" or "Profile 2"). Empty means auto-detect last used.
+profile_directory = ""
 
 [agents.claude]
 base_command = "claude"
@@ -33,7 +37,7 @@ api_key_env = "ANTHROPIC_API_KEY"
 api_key_ref = "op://<VAULT>/Anthropic/api-key"
 
 [agents.codex]
-base_command = "codex exec"
+base_command = "codex"
 safe_args = []
 permissive_args = ["--dangerously-bypass-approvals-and-sandbox"]
 api_key_env = "OPENAI_API_KEY"
