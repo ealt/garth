@@ -42,8 +42,12 @@ USER agent
 WORKDIR /work
 
 FROM base AS claude
+ENV PATH="/home/agent/.local/bin:${PATH}"
+RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
-RUN npm install -g @anthropic-ai/claude-code
+RUN set -eux; \
+  native_bin="$(readlink -f /home/agent/.local/bin/claude)"; \
+  install -m 0755 "$native_bin" /usr/local/bin/claude
 USER agent
 
 FROM base AS codex

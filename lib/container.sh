@@ -58,6 +58,20 @@ garth_agent_command_string() {
   printf '%s' "$cmd"
 }
 
+garth_agent_runtime_wrap_command() {
+  local agent="$1"
+  local cmd="$2"
+
+  if [[ "$agent" == "claude" ]]; then
+    # Claude native install metadata expects ~/.local/bin/claude to exist.
+    # Home is tmpfs at runtime, so recreate a launcher symlink each start.
+    printf '%s' "mkdir -p /home/agent/.local/bin; ln -sf /usr/local/bin/claude /home/agent/.local/bin/claude; ${cmd}"
+    return 0
+  fi
+
+  printf '%s' "$cmd"
+}
+
 garth_agent_primary_binary() {
   local agent="$1"
   local base_command
@@ -209,6 +223,7 @@ garth_container_args_lines() {
 
   local command_string
   command_string=$(garth_agent_command_string "$agent" "$safety_mode")
+  command_string=$(garth_agent_runtime_wrap_command "$agent" "$command_string")
   local sandbox_workdir
   sandbox_workdir=$(garth_sandbox_workdir "$repo_root")
 
@@ -346,7 +361,12 @@ garth_docker_image_has_binary() {
   local image="$1"
   local binary="$2"
   garth_require_cmd docker
-  docker run --rm --entrypoint /bin/bash "$image" -lc "command -v $(printf '%q' "$binary") >/dev/null"
+  docker run --rm \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+    --tmpfs /home/agent:rw,exec,nosuid,size=1024m,mode=1777 \
+    --entrypoint /bin/bash "$image" \
+    -lc "command -v $(printf '%q' "$binary") >/dev/null"
 }
 
 garth_ensure_agent_image_ready() {

@@ -228,6 +228,11 @@ garth stop --all --yes
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
+- `Claude native installer mismatch`: if you see messages like
+  `installMethod is native` or `Native installation exists but ...`, rebuild
+  `garth-claude:latest` (for example `garth setup` or `docker build --target claude -t garth-claude:latest docker`)
+- `bash: line 1: claude: command not found`: rebuild `garth-claude:latest`
+  from the `garth` repo (`garth setup` is simplest)
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
 - `Session already exists`: run `garth stop <session>` first
 
