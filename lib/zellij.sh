@@ -62,6 +62,17 @@ garth_zellij_wait_for_running() {
   return 1
 }
 
+garth_zellij_launcher_script() {
+  local zellij_bin="$1"
+  local session="$2"
+  local layout_file="$3"
+  local attach_cmd create_cmd
+  printf -v attach_cmd '%q attach %q' "$zellij_bin" "$session"
+  printf -v create_cmd '%q -s %q --new-session-with-layout %q' "$zellij_bin" "$session" "$layout_file"
+  # Attach if possible; otherwise create; then attach once more to handle races.
+  printf '%s || %s || %s' "$attach_cmd" "$create_cmd" "$attach_cmd"
+}
+
 # Args:
 #   layout_file worktree session repo_root token_dir network image_prefix safety_mode sandbox auth_passthrough_csv agent...
 garth_generate_zellij_layout() {
@@ -141,6 +152,7 @@ garth_zellij_launch() {
   local session="$1"
   local layout_file="$2"
   local zellij_bin
+  local launch_script
   local -a zellij_args=()
   local pre_state
   GARTH_ZELLIJ_LAUNCH_ASYNC=false
@@ -154,22 +166,18 @@ garth_zellij_launch() {
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     if [[ -n "$zellij_bin" ]]; then
       echo "[dry-run] $zellij_bin ${zellij_args[*]}"
+      launch_script=$(garth_zellij_launcher_script "$zellij_bin" "$session" "$layout_file")
     else
       echo "[dry-run] zellij ${zellij_args[*]}"
+      launch_script="zellij attach $session || zellij -s $session --new-session-with-layout $layout_file || zellij attach $session"
     fi
     if garth_is_macos; then
-      if command -v osascript >/dev/null 2>&1; then
-        if [[ -n "$zellij_bin" ]]; then
-          echo "[dry-run] osascript Terminal -> $zellij_bin ${zellij_args[*]}"
-        else
-          echo "[dry-run] osascript Terminal -> zellij ${zellij_args[*]}"
-        fi
-      elif command -v ghostty >/dev/null 2>&1; then
-        if [[ -n "$zellij_bin" ]]; then
-          echo "[dry-run] ghostty -e $zellij_bin ${zellij_args[*]}"
-        else
-          echo "[dry-run] ghostty -e zellij ${zellij_args[*]}"
-        fi
+      if command -v ghostty >/dev/null 2>&1; then
+        echo "[dry-run] ghostty -e /bin/bash -lc '$launch_script'"
+      elif [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+        echo "[dry-run] open -na Ghostty --args -e /bin/bash -lc '$launch_script'"
+      elif command -v osascript >/dev/null 2>&1; then
+        echo "[dry-run] osascript Terminal -> /bin/bash -lc '$launch_script'"
       else
         echo "[dry-run] (no terminal launcher found; zellij will run in current shell)"
       fi
@@ -178,6 +186,7 @@ garth_zellij_launch() {
   fi
   garth_require_cmd zellij
   zellij_bin=$(command -v zellij)
+  launch_script=$(garth_zellij_launcher_script "$zellij_bin" "$session" "$layout_file")
   if garth_zellij_session_exists "$session"; then
     zellij_args=(attach "$session")
   else
@@ -185,13 +194,25 @@ garth_zellij_launch() {
   fi
 
   if garth_is_macos; then
+    if command -v ghostty >/dev/null 2>&1; then
+      ghostty -e /bin/bash -lc "$launch_script" >/dev/null 2>&1 &
+      if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
+        GARTH_ZELLIJ_LAUNCH_ASYNC=true
+        return 0
+      fi
+      garth_log_warn "Ghostty launch did not reach running session state; trying fallback launcher"
+    elif [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+      if open -na "Ghostty" --args -e /bin/bash -lc "$launch_script" >/dev/null 2>&1; then
+        if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
+          GARTH_ZELLIJ_LAUNCH_ASYNC=true
+          return 0
+        fi
+        garth_log_warn "Ghostty.app launch did not reach running session state; trying fallback launcher"
+      fi
+    fi
     if command -v osascript >/dev/null 2>&1; then
       local script_cmd
-      printf -v script_cmd '%q' "$zellij_bin"
-      local arg
-      for arg in "${zellij_args[@]}"; do
-        printf -v script_cmd '%s %q' "$script_cmd" "$arg"
-      done
+      printf -v script_cmd '%q -lc %q' "/bin/bash" "$launch_script"
       if osascript \
         -e "tell application \"Terminal\" to do script \"$script_cmd\"" \
         -e "tell application \"Terminal\" to activate" >/dev/null 2>&1; then
@@ -204,24 +225,8 @@ garth_zellij_launch() {
         garth_log_warn "Failed to open Terminal for zellij; falling back to current shell"
       fi
     fi
-    if command -v ghostty >/dev/null 2>&1; then
-      ghostty -e "$zellij_bin" "${zellij_args[@]}" >/dev/null 2>&1 &
-      if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
-        GARTH_ZELLIJ_LAUNCH_ASYNC=true
-        return 0
-      fi
-      garth_log_warn "Ghostty launch did not reach running session state; falling back to current shell"
-    elif [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
-      if open -na "Ghostty" --args -e "$zellij_bin" "${zellij_args[@]}" >/dev/null 2>&1; then
-        if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
-          GARTH_ZELLIJ_LAUNCH_ASYNC=true
-          return 0
-        fi
-        garth_log_warn "Ghostty.app launch did not reach running session state; falling back to current shell"
-      fi
-    fi
   fi
-  "$zellij_bin" "${zellij_args[@]}"
+  bash -lc "$launch_script"
 }
 
 garth_zellij_list_sessions() {
