@@ -1,18 +1,16 @@
 FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG GARTH_INSTALL_NEOVIM=0
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  bash \
-  ca-certificates \
-  curl \
-  git \
-  jq \
-  openssl \
-  python3 \
-  python3-pip \
-  gnupg \
-  && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  packages="bash ca-certificates curl git jq openssl python3 python3-pip gnupg"; \
+  if [ "$GARTH_INSTALL_NEOVIM" = "1" ] || [ "$GARTH_INSTALL_NEOVIM" = "true" ]; then \
+    packages="$packages neovim"; \
+  fi; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends $packages; \
+  rm -rf /var/lib/apt/lists/*
 
 # Node.js 22 LTS
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \

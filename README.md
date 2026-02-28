@@ -124,6 +124,7 @@ Key sections:
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
 - `[github_app]`: 1Password refs and installation selection strategy
 - `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
+- `[features]`: optional runtime/build features (for example Neovim support)
 - `[agents.<name>]`: command + safe/permissive args + API key ref
 
 Validation is strict for known fields and warning-only for unknown fields.
@@ -133,6 +134,12 @@ Chrome note:
 - set `chrome.profiles_dir = ""` to open URLs in your default signed-in profile
 - set `chrome.profile_directory` (for example `"Default"`) to pin a specific
   Chrome profile when opening a new window
+
+Neovim note:
+
+- set `features.install_neovim = true` to include `nvim` in rebuilt Docker images
+- set `features.mount_neovim_config = true` to mount `~/.config/nvim` into
+  containers as read-only
 
 ## Usage
 
@@ -198,6 +205,8 @@ garth stop --all --yes
 - Agent API keys go through short-lived `0600` env files.
 - GitHub token is mounted as a file (`/run/garth/github_token`) and rotated
   atomically.
+- Repository mount path inside containers is `/<repo-name>-sandbox` (for
+  example `/simplexity-sandbox`).
 - Container defaults:
   - `--cap-drop=ALL`
   - `--security-opt no-new-privileges:true`

@@ -90,7 +90,13 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
   exec bash
 fi
 
-exec docker exec -it "$container" bash -lc 'cd /work; exec bash'
+workdir="$(docker inspect --format '{{.Config.WorkingDir}}' "$container" 2>/dev/null || true)"
+if [[ -z "$workdir" ]]; then
+  workdir="/"
+fi
+escaped_workdir="$(printf '%q' "$workdir")"
+
+exec docker exec -it "$container" bash -lc "cd ${escaped_workdir}; exec bash"
 SCRIPT
   chmod +x "$bridge_script"
 

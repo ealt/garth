@@ -29,6 +29,12 @@ profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 # (for example "Default" or "Profile 2"). Empty means auto-detect last used.
 profile_directory = ""
 
+[features]
+# When true, Docker images are built with neovim installed.
+install_neovim = false
+# When true, mount ~/.config/nvim into containers as read-only.
+mount_neovim_config = false
+
 [agents.claude]
 base_command = "claude"
 safe_args = []

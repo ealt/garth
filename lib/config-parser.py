@@ -34,7 +34,7 @@ except ModuleNotFoundError:
 DURATION_RE = re.compile(r"^(?:[0-9]+[smh]|forever)$")
 NAME_RE = re.compile(r"[^A-Za-z0-9]")
 
-ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "chrome", "agents"}
+ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "chrome", "features", "agents"}
 ALLOWED_DEFAULTS = {
     "agents",
     "sandbox",
@@ -60,6 +60,7 @@ ALLOWED_GITHUB_APP = {
     "installation_id_map",
 }
 ALLOWED_CHROME = {"profiles_dir", "profile_directory"}
+ALLOWED_FEATURES = {"install_neovim", "mount_neovim_config"}
 ALLOWED_AGENT = {
     "base_command",
     "command",  # Back-compat input form.
@@ -238,6 +239,22 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error("chrome.profile_directory must be a string")
     norm["chrome"] = chrome
 
+    features_raw = raw.get("features", {})
+    if not isinstance(features_raw, dict):
+        out.error("features must be a table")
+        features_raw = {}
+    warn_unknown_keys(features_raw, ALLOWED_FEATURES, "features.", out)
+
+    features = {
+        "install_neovim": features_raw.get("install_neovim", False),
+        "mount_neovim_config": features_raw.get("mount_neovim_config", False),
+    }
+    if not isinstance(features["install_neovim"], bool):
+        out.error("features.install_neovim must be true or false")
+    if not isinstance(features["mount_neovim_config"], bool):
+        out.error("features.mount_neovim_config must be true or false")
+    norm["features"] = features
+
     agents_raw = raw.get("agents", {})
     if not isinstance(agents_raw, dict) or not agents_raw:
         out.error("agents must be a non-empty table")
@@ -301,6 +318,7 @@ def emit_env(config: dict[str, Any]) -> str:
     token = config["token_refresh"]
     gh = config["github_app"]
     chrome = config["chrome"]
+    features = config["features"]
     agents = config["agents"]
 
     put("GARTH_DEFAULTS_AGENTS_CSV", ",".join(defaults["agents"]))
@@ -326,6 +344,8 @@ def emit_env(config: dict[str, Any]) -> str:
 
     put("GARTH_CHROME_PROFILES_DIR", chrome["profiles_dir"])
     put("GARTH_CHROME_PROFILE_DIRECTORY", chrome["profile_directory"])
+    put("GARTH_FEATURES_INSTALL_NEOVIM", features["install_neovim"])
+    put("GARTH_FEATURES_MOUNT_NEOVIM_CONFIG", features["mount_neovim_config"])
 
     names = sorted(agents.keys())
     put("GARTH_AGENT_NAMES_CSV", ",".join(names))

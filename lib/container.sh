@@ -5,6 +5,20 @@ if [[ -n "${GARTH_CONTAINER_SH_LOADED:-}" ]]; then
 fi
 GARTH_CONTAINER_SH_LOADED=1
 
+garth_sandbox_dir_name() {
+  local repo_root="$1"
+  local repo_name
+  repo_name=$(basename "$repo_root")
+  repo_name=$(echo "$repo_name" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
+  [[ -n "$repo_name" ]] || repo_name="repo"
+  echo "${repo_name}-sandbox"
+}
+
+garth_sandbox_workdir() {
+  local repo_root="$1"
+  echo "/$(garth_sandbox_dir_name "$repo_root")"
+}
+
 garth_agent_key() {
   local name="$1"
   echo "$name" | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9]/_/g'
@@ -167,6 +181,19 @@ garth_container_emit_auth_mounts_lines() {
   [[ "$count" -gt 0 ]]
 }
 
+garth_container_emit_feature_mounts_lines() {
+  local count=0
+  local mount_nvim_config="${GARTH_FEATURES_MOUNT_NEOVIM_CONFIG:-false}"
+
+  if [[ "$mount_nvim_config" == "true" && -d "$HOME/.config/nvim" ]]; then
+    echo "-v"
+    echo "$HOME/.config/nvim:/home/agent/.config/nvim:ro"
+    count=$((count + 1))
+  fi
+
+  [[ "$count" -gt 0 ]]
+}
+
 # Print docker args one per line for zellij KDL serialization.
 garth_container_args_lines() {
   local session="$1"
@@ -182,6 +209,8 @@ garth_container_args_lines() {
 
   local command_string
   command_string=$(garth_agent_command_string "$agent" "$safety_mode")
+  local sandbox_workdir
+  sandbox_workdir=$(garth_sandbox_workdir "$repo_root")
 
   local image="${image_prefix}-${agent}:latest"
   local name
@@ -215,7 +244,7 @@ garth_container_args_lines() {
   echo "--network"
   echo "$network"
   echo "-v"
-  echo "${worktree}:/work"
+  echo "${worktree}:${sandbox_workdir}"
   echo "-v"
   echo "${token_dir}:/run/garth:ro"
   if [[ "$auth_passthrough_enabled" == "true" ]]; then
@@ -224,6 +253,7 @@ garth_container_args_lines() {
       garth_log_warn "Run local login first (for example: 'codex login' or 'claude auth login')"
     fi
   fi
+  garth_container_emit_feature_mounts_lines || true
   echo "--env-file"
   echo "$env_file"
   echo "--env"
@@ -235,7 +265,7 @@ garth_container_args_lines() {
   echo "--env"
   echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "-w"
-  echo "/work"
+  echo "${sandbox_workdir}"
   echo "$image"
   echo "bash"
   echo "-lc"
@@ -251,6 +281,8 @@ garth_container_shell_args_lines() {
   local image_prefix="$6"
   local shell_agent="${7:-claude}"
   local image="${image_prefix}-${shell_agent}:latest"
+  local sandbox_workdir
+  sandbox_workdir=$(garth_sandbox_workdir "$repo_root")
   local name
   name=$(garth_container_name "$session" "shell")
 
@@ -278,9 +310,10 @@ garth_container_shell_args_lines() {
   echo "--network"
   echo "$network"
   echo "-v"
-  echo "${worktree}:/work"
+  echo "${worktree}:${sandbox_workdir}"
   echo "-v"
   echo "${token_dir}:/run/garth:ro"
+  garth_container_emit_feature_mounts_lines || true
   echo "--env"
   echo "GARTH_GITHUB_TOKEN_FILE=/run/garth/github_token"
   echo "--env"
@@ -292,7 +325,7 @@ garth_container_shell_args_lines() {
   echo "--env"
   echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "-w"
-  echo "/work"
+  echo "${sandbox_workdir}"
   echo "$image"
   echo "bash"
 }
@@ -300,8 +333,13 @@ garth_container_shell_args_lines() {
 garth_docker_build_agent_image() {
   local agent="$1"
   local image_prefix="$2"
+  local install_neovim="${GARTH_FEATURES_INSTALL_NEOVIM:-false}"
+  local nvim_build_arg="GARTH_INSTALL_NEOVIM=0"
+  if [[ "$install_neovim" == "true" ]]; then
+    nvim_build_arg="GARTH_INSTALL_NEOVIM=1"
+  fi
   garth_require_cmd docker
-  garth_run_cmd docker build --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+  garth_run_cmd docker build --build-arg "$nvim_build_arg" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
 }
 
 garth_docker_image_has_binary() {
@@ -336,14 +374,28 @@ garth_ensure_agent_image_ready() {
       ;;
   esac
 
-  if garth_docker_image_has_binary "$image" "$binary"; then
-    return 0
+  local rebuild=false
+  if ! garth_docker_image_has_binary "$image" "$binary"; then
+    garth_log_warn "Image $image is missing expected binary '$binary'; rebuilding"
+    rebuild=true
   fi
 
-  garth_log_warn "Image $image is missing expected binary '$binary'; rebuilding"
-  garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
+  if [[ "${GARTH_FEATURES_INSTALL_NEOVIM:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "nvim"; then
+    garth_log_warn "Image $image is missing expected binary 'nvim'; rebuilding"
+    rebuild=true
+  fi
+
+  if [[ "$rebuild" == "true" ]]; then
+    garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
+  fi
+
   if ! garth_docker_image_has_binary "$image" "$binary"; then
     garth_log_error "Image $image still missing '$binary' after rebuild"
+    return 1
+  fi
+
+  if [[ "${GARTH_FEATURES_INSTALL_NEOVIM:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "nvim"; then
+    garth_log_error "Image $image still missing 'nvim' after rebuild"
     return 1
   fi
 }
