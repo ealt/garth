@@ -221,7 +221,7 @@ Options:
   --sandbox docker|none       Runtime sandbox mode
   --no-sandbox                Alias for --sandbox none
   --network bridge|none       Docker network mode
-  --workspace <N>             Move windows to AeroSpace workspace N
+  --workspace <N|auto>        Move windows to AeroSpace workspace N, or auto-select next (max+1)
   --safety safe|permissive    Agent argument preset
   --dry-run                   Print commands without executing
   --yes, -y                   Auto-confirm prompts
@@ -253,6 +253,7 @@ HELP
 
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
+  workspace="${workspace:-$GARTH_DEFAULTS_WORKSPACE}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
   auth_passthrough_csv="${auth_passthrough_csv:-$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV}"
 
@@ -392,9 +393,9 @@ HELP
   local profile_name
   profile_name=$(compute_profile_name "$repo_name" "$branch")
 
+  garth_move_windows_to_workspace "$workspace"
   garth_launch_cursor "$abs_dir"
   garth_launch_chrome_profile "$GARTH_CHROME_PROFILES_DIR" "$profile_name" "$github_url"
-  garth_move_windows_to_workspace "$workspace"
 
   garth_log_info "Starting zellij session: $session"
   garth_zellij_launch "$session" "$layout_file"
@@ -1122,6 +1123,37 @@ garth_configure_github_app_refs() {
   fi
 }
 
+garth_setup_aerospace() {
+  local non_interactive="$1"
+
+  if ! garth_is_macos; then
+    return 0
+  fi
+
+  if command -v aerospace >/dev/null 2>&1; then
+    garth_log_success "aerospace is installed"
+    return 0
+  fi
+
+  garth_log_warn "aerospace is not installed; workspace auto-placement needs it"
+  if ! command -v brew >/dev/null 2>&1; then
+    garth_log_warn "Homebrew not found. Install AeroSpace manually from https://github.com/nikitabobko/AeroSpace"
+    return 0
+  fi
+
+  if [[ "$non_interactive" == "true" ]] || garth_ask_yn "Install AeroSpace via Homebrew now?"; then
+    garth_log_info "Installing AeroSpace via Homebrew"
+    if brew tap nikitabobko/tap && brew install --cask aerospace; then
+      garth_log_success "Installed aerospace"
+    else
+      garth_log_warn "AeroSpace install failed. Run manually:"
+      garth_log_warn "  brew tap nikitabobko/tap && brew install --cask aerospace"
+    fi
+  else
+    garth_log_warn "Skipping AeroSpace install. Workspace auto-placement will be disabled."
+  fi
+}
+
 cmd_setup() {
   local non_interactive=false
   while [[ $# -gt 0 ]]; do
@@ -1154,6 +1186,8 @@ cmd_setup() {
       garth_log_warn "$cmd is not installed"
     fi
   done
+
+  garth_setup_aerospace "$non_interactive"
 
   local config_dir
   config_dir=$(dirname "$GARTH_CONFIG_PATH")
@@ -1395,7 +1429,11 @@ HELP
   done
 
   local optional_cmd
-  for optional_cmd in op docker zellij; do
+  local optional_cmds=(op docker zellij)
+  if garth_is_macos; then
+    optional_cmds+=(aerospace)
+  fi
+  for optional_cmd in "${optional_cmds[@]}"; do
     if command -v "$optional_cmd" >/dev/null 2>&1; then
       garth_log_success "Optional command found: $optional_cmd"
       [[ "$optional_cmd" == "op" ]] && op_available=true

@@ -39,6 +39,7 @@ ALLOWED_DEFAULTS = {
     "agents",
     "sandbox",
     "network",
+    "workspace",
     "safety_mode",
     "docker_image_prefix",
     "auth_passthrough",
@@ -126,6 +127,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "agents": defaults_raw.get("agents", ["claude", "codex"]),
         "sandbox": defaults_raw.get("sandbox", "docker"),
         "network": defaults_raw.get("network", "bridge"),
+        "workspace": defaults_raw.get("workspace", "auto"),
         "safety_mode": defaults_raw.get("safety_mode", "safe"),
         "docker_image_prefix": defaults_raw.get("docker_image_prefix", "garth"),
         "auth_passthrough": defaults_raw.get("auth_passthrough", []),
@@ -142,6 +144,8 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error("defaults.sandbox must be one of: docker, none")
     if defaults["network"] not in {"bridge", "none"}:
         out.error("defaults.network must be one of: bridge, none")
+    if not isinstance(defaults["workspace"], str):
+        out.error("defaults.workspace must be a string (for example: auto, 3)")
     if defaults["safety_mode"] not in {"safe", "permissive"}:
         out.error("defaults.safety_mode must be one of: safe, permissive")
 
@@ -299,6 +303,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_DEFAULTS_AGENTS_CSV", ",".join(defaults["agents"]))
     put("GARTH_DEFAULTS_SANDBOX", defaults["sandbox"])
     put("GARTH_DEFAULTS_NETWORK", defaults["network"])
+    put("GARTH_DEFAULTS_WORKSPACE", defaults["workspace"])
     put("GARTH_DEFAULTS_SAFETY_MODE", defaults["safety_mode"])
     put("GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX", defaults["docker_image_prefix"])
     put("GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV", ",".join(defaults["auth_passthrough"]))

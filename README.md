@@ -70,6 +70,7 @@ This repo bootstrap script:
 - runs `bin/garth setup` (interactive by default)
 - creates `./config.toml` from `config.example.toml` (if missing)
 - validates repo-local config and installs `garth` in `~/.local/bin`
+- on macOS, offers to install `aerospace` via Homebrew (auto in `--yes`)
 - skips GitHub App ref prompts when already done
 - auto-builds missing default Docker images when Docker is available
 
@@ -114,7 +115,8 @@ Default config file:
 
 Key sections:
 
-- `[defaults]`: selected agents, sandbox mode, network mode, safety mode,
+- `[defaults]`: selected agents, sandbox mode, network mode,
+  workspace target, safety mode,
   optional `auth_passthrough`
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
 - `[github_app]`: 1Password refs and installation selection strategy
@@ -137,7 +139,12 @@ Common options:
 - `--sandbox docker|none`
 - `--network bridge|none`
 - `--safety safe|permissive`
-- `--workspace 3`
+- `--workspace 3|auto`
+
+Workspace note:
+
+- when `defaults.workspace = "auto"` (default), `garth` uses the next numeric
+  AeroSpace workspace (`max + 1`)
 
 Auth note:
 
@@ -199,6 +206,7 @@ garth stop --all --yes
 - `Auth/config check`: run `garth doctor --repo .`
 - `Config not found`: run `garth setup`
 - `1Password CLI is not signed in`: run `op signin`
+- `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
