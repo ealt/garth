@@ -58,14 +58,18 @@ garth_agent_command_string() {
   printf '%s' "$cmd"
 }
 
+garth_claude_runtime_preamble() {
+  printf '%s' 'mkdir -p /home/agent/.local/bin; ln -sf /usr/local/bin/claude /home/agent/.local/bin/claude; if [[ -f /home/agent/.claude.json ]] && ! jq -e . /home/agent/.claude.json >/dev/null 2>&1; then restored=""; while IFS= read -r backup; do [[ -n "$backup" ]] || continue; if jq -e . "$backup" >/dev/null 2>&1; then cp "$backup" /home/agent/.claude.json; restored="$backup"; echo "[garth] Restored /home/agent/.claude.json from $backup"; break; fi; done < <(ls -1t /home/agent/.claude/backups/.claude.json.backup.* /home/agent/.claude/backups/.claude.json.corrupted.* 2>/dev/null || true); if [[ -z "$restored" ]]; then printf "{}\n" > /home/agent/.claude.json; echo "[garth] Reinitialized /home/agent/.claude.json with empty JSON"; fi; elif [[ ! -f /home/agent/.claude.json ]]; then printf "{}\n" > /home/agent/.claude.json; fi'
+}
+
 garth_agent_runtime_wrap_command() {
   local agent="$1"
   local cmd="$2"
 
   if [[ "$agent" == "claude" ]]; then
-    # Claude native install metadata expects ~/.local/bin/claude to exist.
-    # Home is tmpfs at runtime, so recreate a launcher symlink each start.
-    printf '%s' "mkdir -p /home/agent/.local/bin; ln -sf /usr/local/bin/claude /home/agent/.local/bin/claude; ${cmd}"
+    local preamble
+    preamble=$(garth_claude_runtime_preamble)
+    printf '%s' "${preamble}; ${cmd}"
     return 0
   fi
 
@@ -295,6 +299,7 @@ garth_container_shell_args_lines() {
   local network="$5"
   local image_prefix="$6"
   local shell_agent="${7:-claude}"
+  local auth_passthrough_enabled="${8:-false}"
   local image="${image_prefix}-${shell_agent}:latest"
   local sandbox_workdir
   sandbox_workdir=$(garth_sandbox_workdir "$repo_root")
@@ -328,6 +333,12 @@ garth_container_shell_args_lines() {
   echo "${worktree}:${sandbox_workdir}"
   echo "-v"
   echo "${token_dir}:/run/garth:ro"
+  if [[ "$auth_passthrough_enabled" == "true" ]]; then
+    if ! garth_container_emit_auth_mounts_lines "$shell_agent"; then
+      garth_log_warn "Docker auth passthrough enabled for shell agent '$shell_agent' but no local auth files were found"
+      garth_log_warn "Run local login first (for example: 'codex login' or 'claude auth login')"
+    fi
+  fi
   garth_container_emit_feature_mounts_lines || true
   echo "--env"
   echo "GARTH_GITHUB_TOKEN_FILE=/run/garth/github_token"
@@ -342,7 +353,11 @@ garth_container_shell_args_lines() {
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"
+  local shell_command="exec bash"
+  shell_command=$(garth_agent_runtime_wrap_command "$shell_agent" "$shell_command")
   echo "bash"
+  echo "-lc"
+  echo "$shell_command"
 }
 
 garth_docker_build_agent_image() {

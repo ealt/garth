@@ -98,12 +98,18 @@ garth_generate_zellij_layout() {
     echo "    pane split_direction=\"vertical\" size=\"100%\" {"
     if [[ "$sandbox" == "docker" ]]; then
       local shell_agent="${agents[0]:-claude}"
+      local shell_auth_passthrough_enabled="false"
+      if [[ -n "$auth_passthrough_csv" ]]; then
+        case ",$auth_passthrough_csv," in
+          *",$shell_agent,"*) shell_auth_passthrough_enabled="true" ;;
+        esac
+      fi
       echo "      pane name=\"shell\" size=\"35%\" command=\"docker\" {"
       local -a shell_args=()
       local shell_arg
       while IFS= read -r shell_arg; do
         shell_args+=("$shell_arg")
-      done < <(garth_container_shell_args_lines "$session" "$repo_root" "$worktree" "$token_dir" "$network" "$image_prefix" "$shell_agent")
+      done < <(garth_container_shell_args_lines "$session" "$repo_root" "$worktree" "$token_dir" "$network" "$image_prefix" "$shell_agent" "$shell_auth_passthrough_enabled")
       garth_kdl_write_args_line "${shell_args[@]}"
       echo "      }"
     else
