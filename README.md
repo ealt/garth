@@ -1,5 +1,9 @@
 # garth
 
+[![CI](https://github.com/ealt/garth/actions/workflows/ci.yml/badge.svg)](https://github.com/ealt/garth/actions/workflows/ci.yml)
+
+[![Dependabot Updates](https://github.com/ealt/garth/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/ealt/garth/actions/workflows/dependabot/dependabot-updates)
+
 > Walled workspaces for autonomous agents. MIT licensed.
 
 `garth` is a secure multi-project workspace orchestrator for autonomous coding
