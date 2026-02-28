@@ -132,9 +132,9 @@ ensure_claude_state_from_backup() {
 }
 
 ensure_claude_startup_state() {
-  local workdir="${PWD:-/work}"
+  local workdir="${PWD:-/home/agent}"
   if [[ "$workdir" != /* ]]; then
-    workdir="/work"
+    workdir="/home/agent"
   fi
 
   local tmp_file

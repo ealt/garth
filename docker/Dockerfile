@@ -52,7 +52,7 @@ SCRIPT
 RUN git config --system credential.helper /usr/local/bin/garth-git-credential-helper
 
 USER agent
-WORKDIR /work
+WORKDIR /home/agent
 
 FROM base AS claude
 ENV PATH="/home/agent/.local/bin:${PATH}"
