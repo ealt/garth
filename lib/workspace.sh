@@ -117,6 +117,7 @@ if not isinstance(data, dict):
 
 profiles_key = "terminal.integrated.profiles.osx"
 default_key = "terminal.integrated.defaultProfile.osx"
+terminal_env_key = "terminal.integrated.env.osx"
 profile_name = "Garth Sandbox"
 
 profiles = data.get(profiles_key)
@@ -131,6 +132,37 @@ profiles[profile_name] = {
 
 data[profiles_key] = profiles
 data[default_key] = profile_name
+
+# Pin a concrete interpreter so Cursor doesn't fall back to macOS system Python.
+python_candidates = [
+    Path("/opt/homebrew/bin/python3"),
+    Path("/usr/local/bin/python3"),
+]
+python_path = next((str(p) for p in python_candidates if p.exists()), sys.executable)
+if not python_path:
+    python_path = "python3"
+
+data["python.defaultInterpreterPath"] = python_path
+data["python.pythonPath"] = python_path
+
+terminal_env = data.get(terminal_env_key)
+if not isinstance(terminal_env, dict):
+    terminal_env = {}
+
+python_bin_dir = str(Path(python_path).parent) if "/" in python_path else ""
+path_expr = terminal_env.get("PATH")
+if python_bin_dir:
+    if isinstance(path_expr, str) and path_expr:
+        if python_bin_dir not in path_expr.split(":"):
+            terminal_env["PATH"] = f"{python_bin_dir}:{path_expr}"
+    else:
+        terminal_env["PATH"] = f"{python_bin_dir}:${{env:PATH}}"
+
+data[terminal_env_key] = terminal_env
+
+# Clean up stale invalid top-level editor settings if present.
+if "reportUnnecessaryEllipsis" in data:
+    del data["reportUnnecessaryEllipsis"]
 
 settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 PY

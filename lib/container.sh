@@ -171,6 +171,23 @@ ensure_claude_startup_state() {
   return 0
 }
 
+ensure_claude_native_launcher() {
+  local native_dir="/home/agent/.local/bin"
+  local native_cmd="$native_dir/claude"
+  local fallback_cmd="/usr/local/bin/claude"
+
+  mkdir -p "$native_dir"
+
+  if [[ ! -x "$native_cmd" && -x "$fallback_cmd" ]]; then
+    if ! ln -sf "$fallback_cmd" "$native_cmd" 2>/dev/null; then
+      cp "$fallback_cmd" "$native_cmd"
+      chmod 755 "$native_cmd" 2>/dev/null || true
+    fi
+    echo "[garth] Ensured Claude native launcher at $native_cmd"
+  fi
+  return 0
+}
+
 restore_claude_json() {
   local restored=""
   local backup=""
@@ -205,6 +222,7 @@ fi
 
 ensure_claude_state_from_backup || true
 ensure_claude_startup_state || true
+ensure_claude_native_launcher || true
 SCRIPT
 }
 
@@ -259,6 +277,7 @@ garth_prepare_agent_env_file() {
       garth_log_error "Or run with --sandbox none to use local CLI login auth."
       return 1
     fi
+    garth_require_op
     if ! api_key=$(garth_secret_read "$api_key_ref"); then
       garth_log_error "Failed to read agents.$agent.api_key_ref: $api_key_ref"
       return 1
@@ -431,6 +450,8 @@ garth_container_args_lines() {
   echo "/home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
   echo "--tmpfs"
   echo "/home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
+  echo "--tmpfs"
+  echo "/home/agent/.local:rw,exec,nosuid,size=256m,uid=1001,gid=1001,mode=0700"
   echo "--memory"
   echo "8g"
   echo "--cpus"
@@ -459,7 +480,7 @@ garth_container_args_lines() {
   echo "--env"
   echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "--env"
-  echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  echo "PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"
@@ -506,6 +527,8 @@ garth_container_shell_args_lines() {
   echo "/home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
   echo "--tmpfs"
   echo "/home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700"
+  echo "--tmpfs"
+  echo "/home/agent/.local:rw,exec,nosuid,size=256m,uid=1001,gid=1001,mode=0700"
   echo "--network"
   echo "$network"
   echo "-v"
@@ -530,7 +553,7 @@ garth_container_shell_args_lines() {
   echo "--env"
   echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "--env"
-  echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  echo "PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"

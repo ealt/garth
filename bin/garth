@@ -205,6 +205,9 @@ mint_token_for_repo() {
     return 0
   fi
 
+  # Ensure interactive signin (when needed) happens in the parent shell.
+  garth_require_op
+
   local minted
   minted=$(garth_github_mint_installation_token "$owner_repo") || \
     garth_die "Failed to mint GitHub token. Check 1Password sign-in and GitHub App config." 3
@@ -411,9 +414,11 @@ HELP
     expires_epoch="4070908800"
     installation_id="dry-run"
   else
-    local minted
-    minted=$(mint_token_for_repo "$repo_root") || return 3
-    IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
+    local minted_file
+    minted_file=$(mktemp "${TMPDIR:-/tmp}/garth-minted-token.XXXXXX") || return 1
+    garth_register_cleanup_path "$minted_file"
+    mint_token_for_repo "$repo_root" > "$minted_file" || return 3
+    IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo < "$minted_file"
   fi
 
   local token_file
@@ -482,10 +487,22 @@ HELP
   local profile_name
   profile_name=$(compute_profile_name "$repo_name" "$branch")
 
-  garth_move_windows_to_workspace "$workspace"
-  garth_configure_cursor_terminal_bridge "$abs_dir" "$sandbox"
-  garth_launch_cursor "$abs_dir"
-  garth_launch_chrome_profile "$GARTH_CHROME_PROFILES_DIR" "$profile_name" "$github_url"
+  if [[ "${GARTH_SKIP_GUI:-false}" == "true" ]]; then
+    garth_log_warn "GARTH_SKIP_GUI=true; skipping workspace/Cursor/Chrome launch steps"
+  else
+    garth_move_windows_to_workspace "$workspace"
+    if [[ "${GARTH_SKIP_CURSOR:-false}" == "true" ]]; then
+      garth_log_warn "GARTH_SKIP_CURSOR=true; skipping Cursor launch steps"
+    else
+      garth_configure_cursor_terminal_bridge "$abs_dir" "$sandbox"
+      garth_launch_cursor "$abs_dir"
+    fi
+    if [[ "${GARTH_SKIP_CHROME:-false}" == "true" ]]; then
+      garth_log_warn "GARTH_SKIP_CHROME=true; skipping Chrome launch"
+    else
+      garth_launch_chrome_profile "$GARTH_CHROME_PROFILES_DIR" "$profile_name" "$github_url"
+    fi
+  fi
 
   garth_log_info "Starting zellij session: $session"
   garth_zellij_launch "$session" "$layout_file"
@@ -659,9 +676,12 @@ HELP
   local tmp_dir
   tmp_dir=$(garth_make_temp_dir)
 
-  local minted token expires_at expires_epoch installation_id owner_repo
-  minted=$(mint_token_for_repo "$repo_root") || return 3
-  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
+  local token expires_at expires_epoch installation_id owner_repo
+  local minted_file
+  minted_file=$(mktemp "${TMPDIR:-/tmp}/garth-minted-token.XXXXXX") || return 1
+  garth_register_cleanup_path "$minted_file"
+  mint_token_for_repo "$repo_root" > "$minted_file" || return 3
+  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo < "$minted_file"
   garth_write_token_file "$tmp_dir" "$token" >/dev/null
   local require_api_key=true
   if [[ "$sandbox" == "none" ]] || csv_contains_token "$auth_passthrough_csv" "$agent"; then
@@ -752,11 +772,14 @@ HELP
 
   load_config
 
-  local abs_dir repo_root minted token expires_at expires_epoch installation_id owner_repo
+  local abs_dir repo_root token expires_at expires_epoch installation_id owner_repo
   abs_dir=$(garth_abs_path "$dir")
   repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
-  minted=$(mint_token_for_repo "$repo_root") || return 3
-  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo <<< "$minted"
+  local minted_file
+  minted_file=$(mktemp "${TMPDIR:-/tmp}/garth-minted-token.XXXXXX") || return 1
+  garth_register_cleanup_path "$minted_file"
+  mint_token_for_repo "$repo_root" > "$minted_file" || return 3
+  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo < "$minted_file"
 
   if [[ -n "$write_file" ]]; then
     mkdir -p "$(dirname "$write_file")"
@@ -1875,12 +1898,13 @@ HELP
               --tmpfs /tmp:rw,noexec,nosuid,size=256m \
               --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
               --tmpfs /home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              --tmpfs /home/agent/.local:rw,exec,nosuid,size=256m,uid=1001,gid=1001,mode=0700 \
               "${claude_mount_args[@]}" \
               --env HOME=/home/agent \
               --env XDG_CACHE_HOME=/home/agent/.cache \
               --env XDG_CONFIG_HOME=/home/agent/.config \
               --env XDG_STATE_HOME=/home/agent/.local/state \
-              --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              --env PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
               "$claude_image" \
               bash -lc "eval ${preamble_escaped}; claude auth status" 2>/dev/null); then
               if printf '%s\n' "$auth_status_json" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true'; then
@@ -1899,12 +1923,13 @@ HELP
               --tmpfs /tmp:rw,noexec,nosuid,size=256m \
               --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
               --tmpfs /home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              --tmpfs /home/agent/.local:rw,exec,nosuid,size=256m,uid=1001,gid=1001,mode=0700 \
               "${claude_mount_args[@]}" \
               --env HOME=/home/agent \
               --env XDG_CACHE_HOME=/home/agent/.cache \
               --env XDG_CONFIG_HOME=/home/agent/.config \
               --env XDG_STATE_HOME=/home/agent/.local/state \
-              --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              --env PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
               "$claude_image" \
               bash -lc "eval ${preamble_escaped}; jq -c '{has_oauth: (.oauthAccount | type == \"object\"), has_first_start: has(\"firstStartTime\")}' /home/agent/.claude.json" 2>/dev/null); then
               if printf '%s\n' "$state_probe_json" | grep -Eq '"has_oauth":[[:space:]]*true' && \
@@ -1926,12 +1951,13 @@ HELP
               --tmpfs /tmp:rw,noexec,nosuid,size=256m \
               --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
               --tmpfs /home/agent/.cache:rw,noexec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+              --tmpfs /home/agent/.local:rw,exec,nosuid,size=256m,uid=1001,gid=1001,mode=0700 \
               "${claude_mount_args[@]}" \
               --env HOME=/home/agent \
               --env XDG_CACHE_HOME=/home/agent/.cache \
               --env XDG_CONFIG_HOME=/home/agent/.config \
               --env XDG_STATE_HOME=/home/agent/.local/state \
-              --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              --env PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
               "$claude_image" \
               bash -lc "eval ${preamble_escaped}; claude" >/dev/null 2>&1; then
               sleep 5
@@ -1942,8 +1968,11 @@ HELP
               if printf '%s\n' "$probe_logs_compact" | grep -Eq 'selectloginmethod|openingbrowsertosignin|choosethetextstyle|letsgetstarted|accessingworkspace|yesitrustthisfolder'; then
                 garth_log_error "Deep check failed: Claude startup entered onboarding/login/trust flow"
                 failures=$((failures + 1))
+              elif printf '%s\n' "$probe_logs_compact" | grep -Eq 'installmethodisnative|nativeinstallationexistsbut'; then
+                garth_log_error "Deep check failed: Claude startup reported native install layout mismatch"
+                failures=$((failures + 1))
               else
-                garth_log_success "Deep check passed: Claude startup avoided onboarding/login/trust prompts"
+                garth_log_success "Deep check passed: Claude startup avoided onboarding/login/trust/install prompts"
               fi
               docker rm -f "$probe_name" >/dev/null 2>&1 || true
             else

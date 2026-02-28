@@ -154,6 +154,35 @@ print(val)
 PY
 }
 
+garth_trim_whitespace() {
+  garth_python - << 'PY' "$1"
+import sys
+print(sys.argv[1].strip())
+PY
+}
+
+garth_github_validate_app_jwt() {
+  local app_jwt="$1"
+  local expected_app_id="$2"
+
+  local app_body
+  app_body=$(garth_github_api_json "GET" "/app" "$app_jwt") || {
+    garth_log_error "GitHub App JWT validation failed."
+    garth_log_error "This usually means github_app.app_id_ref and github_app.private_key_ref do not belong to the same GitHub App."
+    return 1
+  }
+
+  local resolved_app_id
+  resolved_app_id=$(garth_json_extract "$app_body" "id" 2>/dev/null || true)
+  if [[ -n "$resolved_app_id" && -n "$expected_app_id" && "$resolved_app_id" != "$expected_app_id" ]]; then
+    garth_log_error "GitHub App id mismatch: app_id_ref resolved to '$expected_app_id' but JWT authenticates as app id '$resolved_app_id'."
+    garth_log_error "Update github_app.app_id_ref or github_app.private_key_ref so both point to the same app."
+    return 1
+  fi
+
+  return 0
+}
+
 garth_github_resolve_installation_id() {
   local owner_repo="$1"
   local app_jwt="$2"
@@ -196,7 +225,13 @@ garth_github_mint_installation_token() {
 
   local app_id
   app_id=$(garth_secret_read "$GARTH_GITHUB_APP_APP_ID_REF") || return 1
+  app_id=$(garth_trim_whitespace "$app_id")
   [[ -n "$app_id" ]] || return 1
+  if [[ ! "$app_id" =~ ^[0-9]+$ ]]; then
+    garth_log_error "GitHub App id is invalid: '$app_id'"
+    garth_log_error "Ref ${GARTH_GITHUB_APP_APP_ID_REF} must resolve to a numeric app id."
+    return 1
+  fi
 
   local key_file
   key_file=$(mktemp "${TMPDIR:-/tmp}/garth-app-key.XXXXXX") || return 1
@@ -215,6 +250,7 @@ garth_github_mint_installation_token() {
 
   local app_jwt
   app_jwt=$(garth_github_generate_app_jwt "$app_id" "$key_file") || return 1
+  garth_github_validate_app_jwt "$app_jwt" "$app_id" || return 1
 
   local installation_id
   installation_id=$(garth_github_resolve_installation_id "$owner_repo" "$app_jwt") || return 1

@@ -99,6 +99,13 @@ session is missing.
 On macOS with Homebrew available, it also auto-installs Homebrew Python when
 `python3` resolves to `/usr/bin/python3`.
 
+Debug launch toggles (env vars):
+
+- `GARTH_SKIP_GUI=true`: skip workspace move + Cursor + Chrome launch
+- `GARTH_SKIP_CURSOR=true`: skip Cursor setup/launch only
+- `GARTH_SKIP_CHROME=true`: skip Chrome launch only
+- `GARTH_TRACE_PYTHON=true`: log which Python runtime garth is using
+
 If you prefer interactive setup prompts:
 
 ```bash
@@ -192,6 +199,8 @@ Auth note:
   merges/restores OAuth state from Claude backups as needed
 - container cache root (`/home/agent/.cache`) is writable tmpfs so tools like
   `uv` can create caches even with `--read-only`
+- on interactive terminals, when a secret read requires 1Password auth,
+  `garth` auto-attempts `eval "$(op signin)"` and retries
 
 ### Create and boot a worktree
 
@@ -255,6 +264,9 @@ garth stop --all --yes
 - `Runtime auth/startup probe`: run `garth doctor --repo . --deep`
 - `Config not found`: run `garth setup`
 - `1Password CLI is not signed in`: run `eval "$(op signin)"`
+- `1Password sign-in keeps getting requested`: ensure you are running `garth`
+  interactively (TTY attached) so auto sign-in can prompt, and verify `op whoami`
+  succeeds in the same shell
 - `garth boot keeps prompting for 1Password`: check token cache reuse with
   `garth token . --machine`; if the token is near expiry, a fresh `op` auth is
   expected

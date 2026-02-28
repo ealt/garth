@@ -9,6 +9,7 @@ GARTH_COMMON_SH_LOADED=1
 : "${GARTH_DRY_RUN:=false}"
 : "${GARTH_YES:=false}"
 : "${GARTH_PYTHON_BIN:=python3}"
+: "${GARTH_TRACE_PYTHON:=false}"
 
 # Track temporary paths that should be cleaned up on exit.
 GARTH_CLEANUP_PATHS=()
@@ -81,6 +82,10 @@ if garth_is_macos && [[ -x "/opt/homebrew/bin/python3" ]]; then
 fi
 
 garth_python() {
+  if [[ "$GARTH_TRACE_PYTHON" == "true" && "${GARTH_PYTHON_LOGGED_ONCE:-false}" != "true" ]]; then
+    garth_log_info "Using Python runtime: $GARTH_PYTHON_BIN" >&2
+    GARTH_PYTHON_LOGGED_ONCE=true
+  fi
   "$GARTH_PYTHON_BIN" "$@"
 }
 
