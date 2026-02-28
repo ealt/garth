@@ -51,6 +51,17 @@ bash tests/git_helpers_smoke.sh
 bash tests/zellij_layout_smoke.sh
 ```
 
+### One-Command Check
+
+Run `make check` to lint and test everything at once. This is the recommended
+pre-PR command:
+
+```bash
+make check
+```
+
+CI runs the same checks automatically on every PR.
+
 Each test prints `<name>_smoke: ok` on success and exits non-zero on failure.
 
 ### Docker Rebuilds

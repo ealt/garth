@@ -1,6 +1,6 @@
 # garth
 
-> Walled workspaces for autonomous agents.
+> Walled workspaces for autonomous agents. MIT licensed.
 
 `garth` is a secure multi-project workspace orchestrator for autonomous coding
 agents.

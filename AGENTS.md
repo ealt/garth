@@ -355,6 +355,10 @@ Configured in TOML under `[agents.<name>]`, each with a Docker build target in
 
 ```text
 garth/
+├── .github/
+│   ├── workflows/ci.yml               # CI: lint + smoke tests on push/PR
+│   ├── dependabot.yml                 # Docker + Actions version bumps
+│   └── PULL_REQUEST_TEMPLATE.md       # PR checklist template
 ├── bin/garth                          # CLI entrypoint, command routing (~2229 lines)
 ├── lib/
 │   ├── common.sh                      # Logging, dry-run, cleanup, utilities (327 lines)
@@ -376,6 +380,10 @@ garth/
 │   └── github-app-setup.md            # GitHub App wiring guide
 ├── templates/
 │   └── aerospace.example.toml         # AeroSpace config template
+├── .editorconfig                      # Editor formatting rules
+├── .shellcheckrc                      # ShellCheck config (source paths, suppressions)
+├── Makefile                           # make lint / test / check
+├── LICENSE                            # MIT license
 ├── config.example.toml                # Baseline config (copy to config.toml)
 ├── setup.sh                           # Bootstrap script
 ├── README.md                          # Installation, config, usage

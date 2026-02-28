@@ -1,2 +1,7 @@
 *.pyc
 config.toml
+__pycache__/
+.DS_Store
+*.swp
+*.swo
+*~

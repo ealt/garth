@@ -1,0 +1,6 @@
+shell=bash
+source-path=SCRIPTDIR
+source-path=SCRIPTDIR/../lib
+
+# SC2155: Declare and assign separately — pervasive `local var=$(cmd)` pattern
+disable=SC2155

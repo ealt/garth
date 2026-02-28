@@ -1,0 +1,29 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Shell syntax check
+        run: bash -n bin/garth lib/*.sh
+      - name: Python syntax check
+        run: python3 -m py_compile lib/config-parser.py
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: bin lib
+          additional_files: setup.sh
+      - name: Config parser smoke test
+        run: bash tests/config_parser_smoke.sh
+      - name: Git helpers smoke test
+        run: bash tests/git_helpers_smoke.sh
+      - name: Zellij layout smoke test
+        run: bash tests/zellij_layout_smoke.sh
