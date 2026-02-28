@@ -54,7 +54,7 @@ ensure_state_root() {
 }
 
 config_env() {
-  "$GARTH_ROOT/lib/config-parser.py" env "$GARTH_CONFIG_PATH"
+  garth_python "$GARTH_ROOT/lib/config-parser.py" env "$GARTH_CONFIG_PATH"
 }
 
 load_config() {
@@ -127,6 +127,70 @@ read_state_value() {
   fi
 }
 
+token_cache_dir() {
+  echo "$GARTH_STATE_ROOT/token-cache"
+}
+
+token_cache_file_for_owner_repo() {
+  local owner_repo="$1"
+  local key
+  key=$(echo "$owner_repo" | sed -E 's/[^A-Za-z0-9._-]+/_/g')
+  echo "$(token_cache_dir)/${key}.tsv"
+}
+
+garth_read_cached_token_for_owner_repo() {
+  local owner_repo="$1"
+  local cache_file
+  cache_file=$(token_cache_file_for_owner_repo "$owner_repo")
+  [[ -f "$cache_file" ]] || return 1
+
+  local token expires_at expires_epoch installation_id
+  IFS=$'\t' read -r token expires_at expires_epoch installation_id < "$cache_file" || return 1
+  [[ -n "$token" && -n "$expires_at" && -n "$expires_epoch" ]] || return 1
+  [[ "$expires_epoch" =~ ^[0-9]+$ ]] || return 1
+
+  local now min_ttl
+  now=$(garth_now_epoch)
+  min_ttl="${GARTH_TOKEN_CACHE_MIN_TTL_SECONDS:-}"
+  if [[ -z "$min_ttl" ]]; then
+    if [[ -n "${GARTH_TOKEN_REFRESH_LEAD_TIME:-}" ]]; then
+      local lead_seconds
+      lead_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_LEAD_TIME" 2>/dev/null || true)
+      if [[ "$lead_seconds" =~ ^[0-9]+$ ]] && (( lead_seconds > 0 )); then
+        min_ttl="$lead_seconds"
+      fi
+    fi
+  fi
+  if [[ -z "$min_ttl" || ! "$min_ttl" =~ ^[0-9]+$ ]]; then
+    min_ttl=900
+  fi
+  if (( expires_epoch <= now + min_ttl )); then
+    return 1
+  fi
+
+  printf '%s\t%s\t%s\t%s\t%s\n' "$token" "$expires_at" "$expires_epoch" "$installation_id" "$owner_repo"
+}
+
+garth_write_cached_token_for_owner_repo() {
+  local owner_repo="$1"
+  local token="$2"
+  local expires_at="$3"
+  local expires_epoch="$4"
+  local installation_id="$5"
+  local cache_dir cache_file tmp_file
+
+  cache_dir=$(token_cache_dir)
+  mkdir -p "$cache_dir"
+  chmod 700 "$cache_dir"
+
+  cache_file=$(token_cache_file_for_owner_repo "$owner_repo")
+  tmp_file="${cache_file}.tmp.$$"
+  umask 077
+  printf '%s\t%s\t%s\t%s\n' "$token" "$expires_at" "$expires_epoch" "$installation_id" > "$tmp_file"
+  chmod 600 "$tmp_file"
+  mv "$tmp_file" "$cache_file"
+}
+
 mint_token_for_repo() {
   local repo_root="$1"
   local remote_url owner_repo
@@ -134,6 +198,12 @@ mint_token_for_repo() {
   remote_url=$(garth_git_remote_url "$repo_root" "origin")
   owner_repo=$(garth_git_owner_repo_from_remote "$remote_url") || \
     garth_die "Unsupported remote URL format (expected GitHub): $remote_url" 1
+
+  local cached
+  if cached=$(garth_read_cached_token_for_owner_repo "$owner_repo" 2>/dev/null); then
+    printf '%s\n' "$cached"
+    return 0
+  fi
 
   local minted
   minted=$(garth_github_mint_installation_token "$owner_repo") || \
@@ -145,6 +215,7 @@ mint_token_for_repo() {
 
   local expires_epoch
   expires_epoch=$(garth_iso8601_to_epoch "$expires_at")
+  garth_write_cached_token_for_owner_repo "$owner_repo" "$token" "$expires_at" "$expires_epoch" "$installation_id"
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$token" "$expires_at" "$expires_epoch" "$installation_id" "$owner_repo"
 }
@@ -251,8 +322,6 @@ HELP
   load_config
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
     ensure_state_root
-    # Ensure a usable 1Password session in parent process before secret reads.
-    garth_ensure_secret_access "$GARTH_GITHUB_APP_APP_ID_REF"
   fi
 
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
@@ -569,8 +638,6 @@ HELP
     normalized_passthrough+=("$passthrough_agent")
   done
   auth_passthrough_csv=$(garth_join_by "," "${normalized_passthrough[@]:-}")
-  # Ensure a usable 1Password session in parent process before secret reads.
-  garth_ensure_secret_access "$GARTH_GITHUB_APP_APP_ID_REF"
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
@@ -684,8 +751,6 @@ HELP
   [[ -n "$dir" ]] || garth_die "token requires <dir>" 1
 
   load_config
-  # Ensure a usable 1Password session in parent process before secret reads.
-  garth_ensure_secret_access "$GARTH_GITHUB_APP_APP_ID_REF"
 
   local abs_dir repo_root minted token expires_at expires_epoch installation_id owner_repo
   abs_dir=$(garth_abs_path "$dir")
@@ -800,7 +865,7 @@ cmd_status() {
 
       [[ "$first" == "true" ]] || printf ','
       first=false
-      python3 - << 'PY' "$session" "$repo_root" "$branch" "$agents_csv" "$token_state" "$uptime" "$containers"
+      garth_python - << 'PY' "$session" "$repo_root" "$branch" "$agents_csv" "$token_state" "$uptime" "$containers"
 import json
 import sys
 session, repo_root, branch, agents_csv, token_state, uptime, containers = sys.argv[1:]
@@ -991,7 +1056,7 @@ garth_prompt_with_default() {
 }
 
 garth_first_vault_name() {
-  op vault list --format json 2>/dev/null | python3 - << 'PY'
+  op vault list --format json 2>/dev/null | garth_python - << 'PY'
 import json
 import sys
 try:
@@ -1006,7 +1071,7 @@ PY
 }
 
 garth_list_vault_names() {
-  op vault list --format json 2>/dev/null | python3 - << 'PY'
+  op vault list --format json 2>/dev/null | garth_python - << 'PY'
 import json
 import sys
 try:
@@ -1204,8 +1269,8 @@ garth_setup_python3() {
   fi
 
   local py_path py_ver
-  py_path="$(command -v python3 || true)"
-  py_ver="$(python3 --version 2>/dev/null || true)"
+  py_path="$(command -v "$GARTH_PYTHON_BIN" || true)"
+  py_ver="$("$GARTH_PYTHON_BIN" --version 2>/dev/null || true)"
 
   if [[ "$py_path" != "/usr/bin/python3" ]]; then
     return 0
@@ -1260,7 +1325,11 @@ cmd_setup() {
 
   garth_log_info "Checking prerequisites"
   garth_require_cmd git
-  garth_require_cmd python3
+  if [[ "$GARTH_PYTHON_BIN" == */* ]]; then
+    [[ -x "$GARTH_PYTHON_BIN" ]] || garth_die "Missing required command: $GARTH_PYTHON_BIN" 2
+  else
+    garth_require_cmd "$GARTH_PYTHON_BIN"
+  fi
   garth_setup_python3 "$non_interactive"
 
   local optional=(docker zellij op)
@@ -1297,7 +1366,7 @@ cmd_setup() {
 
   garth_configure_github_app_refs
 
-  if "$GARTH_ROOT/lib/config-parser.py" validate "$GARTH_CONFIG_PATH"; then
+  if garth_python "$GARTH_ROOT/lib/config-parser.py" validate "$GARTH_CONFIG_PATH"; then
     garth_log_success "Config validation passed"
   else
     garth_die "Config validation failed" 1
@@ -1556,7 +1625,7 @@ HELP
   fi
 
   if [[ "$config_ok" == "true" ]]; then
-    if "$GARTH_ROOT/lib/config-parser.py" validate "$GARTH_CONFIG_PATH" >/dev/null; then
+    if garth_python "$GARTH_ROOT/lib/config-parser.py" validate "$GARTH_CONFIG_PATH" >/dev/null; then
       garth_log_success "Config validation passed"
     else
       garth_log_error "Config validation failed"

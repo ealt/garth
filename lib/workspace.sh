@@ -100,7 +100,7 @@ exec docker exec -it "$container" bash -lc "cd ${escaped_workdir}; exec bash"
 SCRIPT
   chmod +x "$bridge_script"
 
-  python3 - << 'PY' "$settings_file"
+  garth_python - << 'PY' "$settings_file"
 import json
 import sys
 from pathlib import Path

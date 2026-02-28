@@ -8,6 +8,7 @@ GARTH_COMMON_SH_LOADED=1
 # Global runtime flags controlled by bin/garth.
 : "${GARTH_DRY_RUN:=false}"
 : "${GARTH_YES:=false}"
+: "${GARTH_PYTHON_BIN:=python3}"
 
 # Track temporary paths that should be cleaned up on exit.
 GARTH_CLEANUP_PATHS=()
@@ -72,6 +73,15 @@ garth_require_cmd() {
 
 garth_is_macos() {
   [[ "$(uname -s)" == "Darwin" ]]
+}
+
+# Prefer Homebrew Python on macOS to avoid system toolchain prompts.
+if garth_is_macos && [[ -x "/opt/homebrew/bin/python3" ]]; then
+  GARTH_PYTHON_BIN="/opt/homebrew/bin/python3"
+fi
+
+garth_python() {
+  "$GARTH_PYTHON_BIN" "$@"
 }
 
 garth_now_epoch() {
@@ -140,7 +150,7 @@ garth_join_by() {
 
 garth_json_array_to_lines() {
   local json="$1"
-  python3 - << 'PY' "$json"
+  garth_python - << 'PY' "$json"
 import json
 import sys
 arr = json.loads(sys.argv[1])
@@ -154,7 +164,7 @@ PY
 garth_json_get() {
   local json="$1"
   local key="$2"
-  python3 - << 'PY' "$json" "$key"
+  garth_python - << 'PY' "$json" "$key"
 import json
 import sys
 obj = json.loads(sys.argv[1])

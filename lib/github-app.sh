@@ -12,7 +12,7 @@ garth_base64url() {
 garth_json_extract() {
   local json="$1"
   local key="$2"
-  python3 - << 'PY' "$json" "$key"
+  garth_python - << 'PY' "$json" "$key"
 import json
 import sys
 try:
@@ -63,7 +63,7 @@ garth_github_api_json() {
     local message="GitHub API request failed: ${method} ${path} (HTTP ${status})"
     if [[ -n "$body" ]]; then
       local gh_error
-      gh_error=$(python3 - << 'PY' "$body"
+      gh_error=$(garth_python - << 'PY' "$body"
 import json
 import sys
 try:
@@ -115,7 +115,7 @@ garth_github_private_key_valid() {
 
 garth_github_normalize_private_key_file() {
   local key_file="$1"
-  python3 - << 'PY' "$key_file"
+  garth_python - << 'PY' "$key_file"
 from pathlib import Path
 import sys
 
@@ -140,7 +140,7 @@ garth_github_installation_from_map() {
   local owner="$1"
   local map_json="$2"
 
-  python3 - << 'PY' "$owner" "$map_json"
+  garth_python - << 'PY' "$owner" "$map_json"
 import json
 import sys
 owner = sys.argv[1]
@@ -233,7 +233,7 @@ garth_github_mint_installation_token() {
 
 garth_iso8601_to_epoch() {
   local value="$1"
-  python3 - << 'PY' "$value"
+  garth_python - << 'PY' "$value"
 from datetime import datetime
 import sys
 value = sys.argv[1]

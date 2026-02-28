@@ -211,6 +211,11 @@ garth agent . codex --sandbox docker
 garth token .
 ```
 
+`garth` caches recently minted GitHub installation tokens in
+`$XDG_STATE_HOME/garth/token-cache` (permissions `0700/0600`) and reuses them
+until they are near expiry. This avoids unnecessary 1Password prompts on every
+`boot`.
+
 ### Session control
 
 ```bash
@@ -249,7 +254,10 @@ garth stop --all --yes
 - `Auth/config check`: run `garth doctor --repo .`
 - `Runtime auth/startup probe`: run `garth doctor --repo . --deep`
 - `Config not found`: run `garth setup`
-- `1Password CLI is not signed in`: run `op signin`
+- `1Password CLI is not signed in`: run `eval "$(op signin)"`
+- `garth boot keeps prompting for 1Password`: check token cache reuse with
+  `garth token . --machine`; if the token is near expiry, a fresh `op` auth is
+  expected
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
@@ -260,8 +268,9 @@ garth stop --all --yes
   from the `garth` repo (`garth setup` is simplest)
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
 - `Session already exists`: run `garth stop <session>` first
-- `macOS asks to install Developer Tools for python3`: install Homebrew Python
-  and ensure `/opt/homebrew/bin` is before `/usr/bin` in your `PATH`
+- `macOS asks to install Developer Tools for python3`: ensure
+  `/opt/homebrew/bin/python3` exists (`brew install python`); `garth` prefers
+  that interpreter at runtime
 
 ## Branding
 
