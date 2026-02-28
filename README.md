@@ -26,6 +26,7 @@ By default, agents do not get your home directory, SSH agent, or Docker socket.
 
 - Isolated agent runtime (`docker`) with strict hardening defaults
 - In docker mode, the main zellij shell pane is also containerized
+- In docker mode, Cursor workspace terminal defaults to a garth sandbox bridge
 - GitHub App auth with token rotation from 1Password-managed secrets
 - Zellij session layout with one shell pane plus one pane per agent
 - Git worktree workflow for parallel branch/task execution

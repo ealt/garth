@@ -410,6 +410,7 @@ HELP
   profile_name=$(compute_profile_name "$repo_name" "$branch")
 
   garth_move_windows_to_workspace "$workspace"
+  garth_configure_cursor_terminal_bridge "$abs_dir" "$sandbox"
   garth_launch_cursor "$abs_dir"
   garth_launch_chrome_profile "$GARTH_CHROME_PROFILES_DIR" "$profile_name" "$github_url"
 
