@@ -157,12 +157,16 @@ Chrome note:
 - set `chrome.profile_directory` (for example `"Default"`) to pin a specific
   Chrome profile when opening a new window
 
-Neovim note:
+Feature notes:
 
-- set `features.install_neovim = true` to include `nvim` in rebuilt Docker images
-- set `features.mount_neovim_config = true` to mount `~/.config/nvim` into
-  containers as read-only
-- set `features.install_uv = true` to include `uv` in rebuilt Docker images
+- set `features.packages` to install optional tools in image builds
+  (generic apt package names, plus special support for `uv`)
+- set `features.mounts` to add optional host mounts (files or directories)
+- string mount entries default to read-only and mount at the same absolute path
+- table mount entries support explicit `host_path`, optional `container_path`,
+  and optional `mode` (`ro|rw`)
+- mounting toolchain can help when command/rule files in `~/.claude`/`~/.codex`
+  are symlinks into your toolchain repo
 
 ## Usage
 

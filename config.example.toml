@@ -30,12 +30,15 @@ profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 profile_directory = ""
 
 [features]
-# When true, Docker images are built with neovim installed.
-install_neovim = false
-# When true, mount ~/.config/nvim into containers as read-only.
-mount_neovim_config = false
-# When true, Docker images are built with uv installed.
-install_uv = false
+# Optional packages to include when building agent images.
+# Package names are treated as apt packages, except "uv" which uses
+# the upstream installer script.
+packages = []
+# Optional host mounts for agent containers.
+# Each entry can be:
+# - a string path (mounted read-only at same absolute path), or
+# - a table: { host_path = "...", container_path = "...", mode = "ro|rw" }
+mounts = []
 
 [security]
 # Host-side paths under the worktree to overlay as read-only in containers.

@@ -33,6 +33,7 @@ except ModuleNotFoundError:
 
 DURATION_RE = re.compile(r"^(?:[0-9]+[smh]|forever)$")
 NAME_RE = re.compile(r"[^A-Za-z0-9]")
+PACKAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
 
 ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "chrome", "features", "security", "agents"}
 ALLOWED_DEFAULTS = {
@@ -60,7 +61,10 @@ ALLOWED_GITHUB_APP = {
     "installation_id_map",
 }
 ALLOWED_CHROME = {"profiles_dir", "profile_directory"}
-ALLOWED_FEATURES = {"install_neovim", "mount_neovim_config", "install_uv"}
+ALLOWED_FEATURES = {
+    "packages",
+    "mounts",
+}
 ALLOWED_SECURITY = {"protected_paths", "seccomp_profile", "auth_mount_mode"}
 ALLOWED_SECURITY_AUTH_MOUNT_MODE = {
     "codex_dot_codex",
@@ -252,19 +256,96 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
     if not isinstance(features_raw, dict):
         out.error("features must be a table")
         features_raw = {}
-    warn_unknown_keys(features_raw, ALLOWED_FEATURES, "features.", out)
+    for key in features_raw:
+        if key not in ALLOWED_FEATURES:
+            out.error(f"Unknown key: features.{key}")
+
+    packages: list[str] = []
+    packages_seen: set[str] = set()
+    packages_raw = features_raw.get("packages")
+    if packages_raw is None:
+        packages_raw = []
+    if not isinstance(packages_raw, list):
+        out.error("features.packages must be an array of package names")
+    else:
+        for idx, item in enumerate(packages_raw):
+            field = f"features.packages[{idx}]"
+            if not isinstance(item, str) or not item.strip():
+                out.error(f"{field} must be a non-empty string")
+                continue
+            pkg = item.strip().lower()
+            if not PACKAGE_NAME_RE.match(pkg):
+                out.error(
+                    f"{field} must match {PACKAGE_NAME_RE.pattern} "
+                    "(lowercase package names only)"
+                )
+                continue
+            if pkg not in packages_seen:
+                packages.append(pkg)
+                packages_seen.add(pkg)
+
+    mounts: list[dict[str, str]] = []
+    mounts_seen: set[tuple[str, str, str]] = set()
+    mounts_raw = features_raw.get("mounts")
+    if mounts_raw is None:
+        mounts_raw = []
+    if not isinstance(mounts_raw, list):
+        out.error("features.mounts must be an array")
+    else:
+        for idx, item in enumerate(mounts_raw):
+            field = f"features.mounts[{idx}]"
+            host_path = ""
+            container_path = ""
+            mode = "ro"
+            if isinstance(item, str):
+                host_path = item.strip()
+                if not host_path:
+                    out.error(f"{field} must be a non-empty path string")
+                    continue
+            elif isinstance(item, dict):
+                for key in item:
+                    if key not in {"host_path", "container_path", "mode"}:
+                        out.warn(f"Unknown key: {field}.{key}")
+                host_val = item.get("host_path", "")
+                if not isinstance(host_val, str) or not host_val.strip():
+                    out.error(f"{field}.host_path is required and must be a non-empty string")
+                    continue
+                host_path = host_val.strip()
+                container_val = item.get("container_path", "")
+                if container_val is None:
+                    container_val = ""
+                if not isinstance(container_val, str):
+                    out.error(f"{field}.container_path must be a string when set")
+                    continue
+                container_path = container_val.strip()
+                mode_val = item.get("mode", "ro")
+                if not isinstance(mode_val, str):
+                    out.error(f"{field}.mode must be a string")
+                    continue
+                mode = mode_val.strip().lower()
+                if mode not in {"ro", "rw"}:
+                    out.error(f"{field}.mode must be one of: ro, rw")
+                    continue
+            else:
+                out.error(f"{field} must be a string path or table")
+                continue
+
+            key = (host_path, container_path, mode)
+            if key in mounts_seen:
+                continue
+            mounts_seen.add(key)
+            mounts.append(
+                {
+                    "host_path": host_path,
+                    "container_path": container_path,
+                    "mode": mode,
+                }
+            )
 
     features = {
-        "install_neovim": features_raw.get("install_neovim", False),
-        "mount_neovim_config": features_raw.get("mount_neovim_config", False),
-        "install_uv": features_raw.get("install_uv", False),
+        "packages": packages,
+        "mounts": mounts,
     }
-    if not isinstance(features["install_neovim"], bool):
-        out.error("features.install_neovim must be true or false")
-    if not isinstance(features["mount_neovim_config"], bool):
-        out.error("features.mount_neovim_config must be true or false")
-    if not isinstance(features["install_uv"], bool):
-        out.error("features.install_uv must be true or false")
     norm["features"] = features
 
     security_raw = raw.get("security", {})
@@ -394,9 +475,8 @@ def emit_env(config: dict[str, Any]) -> str:
 
     put("GARTH_CHROME_PROFILES_DIR", chrome["profiles_dir"])
     put("GARTH_CHROME_PROFILE_DIRECTORY", chrome["profile_directory"])
-    put("GARTH_FEATURES_INSTALL_NEOVIM", features["install_neovim"])
-    put("GARTH_FEATURES_MOUNT_NEOVIM_CONFIG", features["mount_neovim_config"])
-    put("GARTH_FEATURES_INSTALL_UV", features["install_uv"])
+    put("GARTH_FEATURES_PACKAGES_JSON", features["packages"])
+    put("GARTH_FEATURES_MOUNTS_JSON", features["mounts"])
 
     put("GARTH_SECURITY_PROTECTED_PATHS_JSON", security["protected_paths"])
     put("GARTH_SECURITY_SECCOMP_PROFILE", security["seccomp_profile"])

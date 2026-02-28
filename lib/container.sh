@@ -461,15 +461,97 @@ garth_container_emit_auth_mounts_lines() {
   [[ "$count" -gt 0 ]]
 }
 
+garth_expand_home_path() {
+  local path="$1"
+  if [[ "$path" == "~" ]]; then
+    printf '%s' "$HOME"
+    return 0
+  fi
+  if [[ "$path" == "~/"* ]]; then
+    printf '%s' "$HOME/${path#\~/}"
+    return 0
+  fi
+  printf '%s' "$path"
+}
+
+garth_features_mount_specs_lines() {
+  local mounts_json="${GARTH_FEATURES_MOUNTS_JSON:-[]}"
+  garth_python - <<'PY' "$mounts_json"
+import json
+import sys
+
+try:
+    mounts = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+
+if not isinstance(mounts, list):
+    raise SystemExit(1)
+
+for item in mounts:
+    if not isinstance(item, dict):
+        continue
+    host = item.get("host_path", "")
+    container = item.get("container_path", "")
+    mode = item.get("mode", "ro")
+    if not isinstance(host, str):
+        continue
+    host = host.strip()
+    if not host:
+        continue
+    if not isinstance(container, str):
+        container = ""
+    else:
+        container = container.strip()
+    if not isinstance(mode, str):
+        mode = "ro"
+    mode = mode.strip().lower()
+    if mode not in {"ro", "rw"}:
+        mode = "ro"
+    print(f"{host}|{container}|{mode}")
+PY
+}
+
+garth_features_packages_lines() {
+  local packages_json="${GARTH_FEATURES_PACKAGES_JSON:-[]}"
+  garth_json_array_to_lines "$packages_json" 2>/dev/null || true
+}
+
+garth_features_packages_csv() {
+  local first=true
+  local out=""
+  local pkg
+  while IFS= read -r pkg; do
+    [[ -n "$pkg" ]] || continue
+    if [[ "$first" == "true" ]]; then
+      out="$pkg"
+      first=false
+    else
+      out="${out},${pkg}"
+    fi
+  done < <(garth_features_packages_lines)
+  printf '%s' "$out"
+}
+
 garth_container_emit_feature_mounts_lines() {
   local count=0
-  local mount_nvim_config="${GARTH_FEATURES_MOUNT_NEOVIM_CONFIG:-false}"
-
-  if [[ "$mount_nvim_config" == "true" && -d "$HOME/.config/nvim" ]]; then
-    echo "-v"
-    echo "$HOME/.config/nvim:/home/agent/.config/nvim:ro"
-    count=$((count + 1))
-  fi
+  local host_raw container_raw mode host_path container_path
+  while IFS='|' read -r host_raw container_raw mode; do
+    [[ -n "$host_raw" ]] || continue
+    host_path=$(garth_expand_home_path "$host_raw")
+    container_path="$container_raw"
+    if [[ -z "$container_path" ]]; then
+      # Default to same absolute path to preserve host symlink targets.
+      container_path="$host_path"
+    fi
+    if [[ -e "$host_path" ]]; then
+      echo "-v"
+      echo "${host_path}:${container_path}:${mode}"
+      count=$((count + 1))
+    else
+      garth_log_warn "Configured mount source is missing: $host_path"
+    fi
+  done < <(garth_features_mount_specs_lines 2>/dev/null || true)
 
   [[ "$count" -gt 0 ]]
 }
@@ -647,18 +729,10 @@ garth_container_shell_args_lines() {
 garth_docker_build_agent_image() {
   local agent="$1"
   local image_prefix="$2"
-  local install_neovim="${GARTH_FEATURES_INSTALL_NEOVIM:-false}"
-  local install_uv="${GARTH_FEATURES_INSTALL_UV:-false}"
-  local nvim_build_arg="GARTH_INSTALL_NEOVIM=0"
-  local uv_build_arg="GARTH_INSTALL_UV=0"
-  if [[ "$install_neovim" == "true" ]]; then
-    nvim_build_arg="GARTH_INSTALL_NEOVIM=1"
-  fi
-  if [[ "$install_uv" == "true" ]]; then
-    uv_build_arg="GARTH_INSTALL_UV=1"
-  fi
+  local features_packages_csv
+  features_packages_csv="$(garth_features_packages_csv)"
   garth_require_cmd docker
-  garth_run_cmd docker build --build-arg "$nvim_build_arg" --build-arg "$uv_build_arg" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+  garth_run_cmd docker build --build-arg "GARTH_FEATURE_PACKAGES=${features_packages_csv}" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
 }
 
 garth_docker_image_has_binary() {
@@ -671,6 +745,24 @@ garth_docker_image_has_binary() {
     --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
     --entrypoint /bin/bash "$image" \
     -lc "command -v $(printf '%q' "$binary") >/dev/null"
+}
+
+garth_docker_image_has_feature_package() {
+  local image="$1"
+  local package="$2"
+  garth_require_cmd docker
+
+  if [[ "$package" == "uv" ]]; then
+    garth_docker_image_has_binary "$image" "uv"
+    return $?
+  fi
+
+  docker run --rm \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+    --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+    --entrypoint /bin/bash "$image" \
+    -lc "dpkg-query -W -f='\${Status}' $(printf '%q' "$package") 2>/dev/null | grep -q 'install ok installed'"
 }
 
 garth_ensure_agent_image_ready() {
@@ -704,14 +796,14 @@ garth_ensure_agent_image_ready() {
     rebuild=true
   fi
 
-  if [[ "${GARTH_FEATURES_INSTALL_NEOVIM:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "nvim"; then
-    garth_log_warn "Image $image is missing expected binary 'nvim'; rebuilding"
-    rebuild=true
-  fi
-  if [[ "${GARTH_FEATURES_INSTALL_UV:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "uv"; then
-    garth_log_warn "Image $image is missing expected binary 'uv'; rebuilding"
-    rebuild=true
-  fi
+  local package_name
+  while IFS= read -r package_name; do
+    [[ -n "$package_name" ]] || continue
+    if ! garth_docker_image_has_feature_package "$image" "$package_name"; then
+      garth_log_warn "Image $image is missing configured feature package '$package_name'; rebuilding"
+      rebuild=true
+    fi
+  done < <(garth_features_packages_lines)
 
   if [[ "$rebuild" == "true" ]]; then
     garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
@@ -722,14 +814,13 @@ garth_ensure_agent_image_ready() {
     return 1
   fi
 
-  if [[ "${GARTH_FEATURES_INSTALL_NEOVIM:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "nvim"; then
-    garth_log_error "Image $image still missing 'nvim' after rebuild"
-    return 1
-  fi
-  if [[ "${GARTH_FEATURES_INSTALL_UV:-false}" == "true" ]] && ! garth_docker_image_has_binary "$image" "uv"; then
-    garth_log_error "Image $image still missing 'uv' after rebuild"
-    return 1
-  fi
+  while IFS= read -r package_name; do
+    [[ -n "$package_name" ]] || continue
+    if ! garth_docker_image_has_feature_package "$image" "$package_name"; then
+      garth_log_error "Image $image still missing feature package '$package_name' after rebuild"
+      return 1
+    fi
+  done < <(garth_features_packages_lines)
 }
 
 garth_stop_containers_for_session() {

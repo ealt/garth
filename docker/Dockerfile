@@ -1,22 +1,29 @@
 FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG GARTH_INSTALL_NEOVIM=0
-ARG GARTH_INSTALL_UV=0
+ARG GARTH_FEATURE_PACKAGES=""
 
 RUN set -eux; \
   packages="bash ca-certificates curl git jq openssl python3 python3-pip gnupg"; \
-  if [ "$GARTH_INSTALL_NEOVIM" = "1" ] || [ "$GARTH_INSTALL_NEOVIM" = "true" ]; then \
-    packages="$packages neovim"; \
-  fi; \
+  feature_packages="${GARTH_FEATURE_PACKAGES:-}"; \
+  old_ifs="$IFS"; \
+  IFS=','; \
+  for pkg in $feature_packages; do \
+    [ -n "$pkg" ] || continue; \
+    case "$pkg" in \
+      uv) ;; \
+      *) packages="$packages $pkg" ;; \
+    esac; \
+  done; \
+  IFS="$old_ifs"; \
   apt-get update; \
   apt-get install -y --no-install-recommends $packages; \
   rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-  if [ "$GARTH_INSTALL_UV" = "1" ] || [ "$GARTH_INSTALL_UV" = "true" ]; then \
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh; \
-  fi
+  case ",${GARTH_FEATURE_PACKAGES:-}," in \
+    *,uv,*) curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh ;; \
+  esac
 
 # Node.js 22 LTS
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
