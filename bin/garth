@@ -238,7 +238,7 @@ sleep_with_session_guard() {
 garth_is_sensitive_changed_path() {
   local path="$1"
   case "$path" in
-    .git/hooks/*|.git/config|.github/*|.github/workflows/*|Makefile|*.sh|.circleci/*|.gitlab-ci.yml|Jenkinsfile)
+    .git/hooks/*|.git/config|.github/*|Makefile|*.sh|.circleci/*|.gitlab-ci.yml|Jenkinsfile)
       return 0
       ;;
     *)
@@ -663,8 +663,8 @@ HELP
 
   # If session no longer exists after detach/exit, clean stale session state.
   if [[ "$GARTH_DRY_RUN" != "true" && "$GARTH_ZELLIJ_LAUNCH_ASYNC" == "true" ]]; then
-    local wait_s
-    for wait_s in 1 2 3 4 5; do
+    local _wait
+    for _wait in 1 2 3 4 5; do
       if garth_zellij_list_sessions | grep -qx "$session"; then
         break
       fi
@@ -1649,6 +1649,7 @@ HELP
     (
       cd "$abs_dir"
       set -a
+      # shellcheck disable=SC1090
       source "$env_file"
       set +a
       export GITHUB_TOKEN
@@ -2271,11 +2272,13 @@ garth_set_config_string_value() {
 }
 
 garth_first_vault_name() {
-  op vault list --format json 2>/dev/null | garth_python - << 'PY'
+  local json
+  json="$(op vault list --format json 2>/dev/null)" || return 1
+  garth_python - << 'PY' "$json"
 import json
 import sys
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(sys.argv[1])
 except Exception:
     raise SystemExit(1)
 if isinstance(data, list) and data:
@@ -2286,11 +2289,13 @@ PY
 }
 
 garth_list_vault_names() {
-  op vault list --format json 2>/dev/null | garth_python - << 'PY'
+  local json
+  json="$(op vault list --format json 2>/dev/null)" || return 0
+  garth_python - << 'PY' "$json"
 import json
 import sys
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(sys.argv[1])
 except Exception:
     raise SystemExit(0)
 if not isinstance(data, list):
@@ -3027,8 +3032,8 @@ HELP
   fi
 
   if [[ "$config_loaded" == "true" ]]; then
-    local mount_host mount_container mount_mode mount_host_path
-    while IFS='|' read -r mount_host mount_container mount_mode; do
+    local mount_host _mount_container _mount_mode mount_host_path
+    while IFS='|' read -r mount_host _mount_container _mount_mode; do
       [[ -n "$mount_host" ]] || continue
       mount_host_path=$(garth_expand_home_path "$mount_host")
       if [[ -e "$mount_host_path" ]]; then
