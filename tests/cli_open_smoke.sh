@@ -36,13 +36,13 @@ git -C "$REPO" branch -D topic >/dev/null
 git -C "$REPO" remote set-url origin "git@github.com:foo/bar.git"
 git -C "$REPO" remote set-url upstream "git@github.com:foo/baz.git"
 
-GARTH_SKIP_GUI=true "$GARTH_ROOT/bin/garth" open "$REPO" topic --dry-run >/dev/null
+GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true "$GARTH_ROOT/bin/garth" open "$REPO" topic --dry-run >/dev/null
 [[ "$(git -C "$REPO" for-each-ref --format='%(upstream:short)' refs/heads/topic)" == "origin/topic" ]]
 
 git -C "$REPO" checkout main >/dev/null
 echo "dirty" > "$REPO/uncommitted.txt"
 set +e
-DIRTY_OUT="$(GARTH_SKIP_GUI=true "$GARTH_ROOT/bin/garth" open "$REPO" topic --no-worktree --dry-run 2>&1)"
+DIRTY_OUT="$(GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true "$GARTH_ROOT/bin/garth" open "$REPO" topic --no-worktree --dry-run 2>&1)"
 DIRTY_RC=$?
 set -e
 [[ $DIRTY_RC -ne 0 ]]
