@@ -2,14 +2,55 @@
 
 [![CI](https://github.com/ealt/garth/actions/workflows/ci.yml/badge.svg)](https://github.com/ealt/garth/actions/workflows/ci.yml) [![Dependabot Updates](https://github.com/ealt/garth/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/ealt/garth/actions/workflows/dependabot/dependabot-updates)
 
-> Walled workspaces for autonomous agents. MIT licensed.
+> One command to launch a full dev environment per task. MIT licensed.
 
-`garth` is a secure multi-project workspace orchestrator for autonomous coding
-agents.
+`garth` is a workspace orchestrator for autonomous coding agents. One command
+gives you a git branch, worktree, Docker-sandboxed agents, and a Zellij terminal
+session — all wired together and ready to go. Run multiple tasks across multiple
+repos with multiple agents in parallel, each in its own isolated workspace.
 
-It launches a Zellij-based project session, runs agents in Docker (or host mode
-when explicitly requested), mints short-lived GitHub App installation tokens
-through 1Password, and keeps Git auth refreshed without restarting containers.
+```bash
+garth new . feature/auth           # branch + worktree + containers + session
+garth new ../other-repo fix/bug    # same thing, different repo
+garth open . feature/auth          # reattach where you left off
+garth ps                           # see everything running
+```
+
+## Name
+
+**garth** comes from Old Norse *garðr* ("enclosure"), the root of *garden*,
+*yard*, and *guard*. A garth is the protected courtyard within walls: an
+enclosed workspace where controlled work happens.
+
+In monastic architecture, the garth was the cloister garden: a calm, ordered
+space surrounded by the structure that protects it.
+
+## Why garth
+
+**Organization.** Working on three features across two repos with Claude and
+Codex means juggling branches, worktrees, terminal sessions, containers, editor
+windows, and browser tabs. `garth` treats all of that as a single operation:
+pick a task, get a workspace — complete with Cursor pointed at the worktree,
+a Chrome window open to the GitHub repo, and agents ready in their panes.
+Resume it later, or tear it down. `garth ps` shows everything at a glance.
+
+**Sandboxing unlocks autonomy.** Agents are most productive when they can run
+without constantly blocking on permission prompts. But running them with full
+access to your machine — SSH keys, cloud credentials, Docker socket — means
+you can't safely let them operate unattended. `garth` resolves this tension:
+robust container isolation lets you grant agents permissive execution within
+strict boundaries. Each agent gets only:
+
+- a mounted worktree
+- a short-lived GitHub App token
+- an agent API key
+
+No home directory, no SSH agent, no Docker socket. That's what makes it safe
+to kick off several long-running agents and walk away.
+
+**Convenience.** One command handles what would otherwise be a sequence of git
+branch, git worktree, docker run, zellij, credential plumbing, and editor/browser
+setup. Token rotation, image builds, and session state are managed automatically.
 
 ## Quick Start
 
@@ -21,29 +62,31 @@ garth open .                       # open default branch
 garth up .                         # interactive launcher
 ```
 
-## Why garth
-
-Running AI coding agents with your full shell environment means they inherit
-everything on your machine: SSH keys, GitHub CLI auth, cloud credentials, and
-local secrets. `garth` limits blast radius by giving each agent only what it
-needs:
-
-- a mounted worktree
-- a short-lived GitHub App token
-- an agent API key
-
-By default, agents do not get your home directory, SSH agent, or Docker socket.
-
 ## Features
 
-- Isolated agent runtime (`docker`) with strict hardening defaults
-- In docker mode, agent panes are containerized while shell panes stay local
-- In docker mode, Cursor workspace terminal defaults to a garth sandbox bridge
-- GitHub App auth with token rotation from 1Password-managed secrets
-- Zellij session layout with one tab per agent (agent left, shell right)
+### Workspace lifecycle
+- One command to create a branch, worktree, containers, and terminal session
+- Launches Cursor pointed at the worktree, Chrome open to the GitHub repo
+- Resume or reattach to existing workspaces without recreating anything
+- Interactive wizard or fully explicit flags — your choice
 - Git worktree workflow for parallel branch/task execution
-- Best-effort GUI launch helpers (Cursor, Chrome profile, AeroSpace)
+
+### Agent sandboxing
+- Isolated Docker runtime with strict hardening defaults (`--cap-drop=ALL`,
+  `--read-only`, custom seccomp, PID limits)
+- Agent panes are containerized while shell panes stay local
+- Cursor workspace terminal bridges into the sandbox automatically
 - Config-driven safety defaults (`safe` vs `permissive`) and retry policy
+
+### Auth and credentials
+- GitHub App auth with token rotation from 1Password-managed secrets
+- Short-lived tokens — no long-lived credentials in containers
+
+### Session management
+- Zellij session layout with one tab per agent (agent left, shell right)
+- `garth ps` for a dashboard of all sessions, branches, and status
+- Stop, resume, or tear down sessions and their resources independently
+- AeroSpace workspace integration for per-project screen real estate
 
 ## Layout
 
@@ -363,47 +406,3 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development setup, testing patterns,
 and the PR workflow.
-
-## Branding
-
-### Name
-
-**garth** comes from Old Norse *garðr* ("enclosure"), the root of *garden*,
-*yard*, and *guard*. A garth is the protected courtyard within walls: an
-enclosed workspace where controlled work happens.
-
-In monastic architecture, the garth was the cloister garden: a calm, ordered
-space surrounded by the structure that protects it.
-
-### Short Description
-
-A CLI that boots secure, Docker-sandboxed workspaces for AI coding agents with
-scoped credentials, git worktrees, and a full dev environment in one command.
-
-### Naming Process
-
-Source territory: **The controlled environment where work happens**, drawn from
-architecture, metallurgy, and nautical compartmentalization.
-
-Candidates considered and rejected:
-
-| Name | Why rejected |
-| ---- | ------------ |
-| hearth | Strong but less distinctive; common fireplace association |
-| bosh | Cloud Foundry BOSH conflict (major DevOps tool, Homebrew formula) |
-| keep | keephq conflict (11k GitHub stars, acquired by Elastic) |
-| crucible | Atlassian Crucible conflict (long-standing brand) |
-| bailey | Clean availability but less resonant than `garth` |
-| kiln | Clean but lacked the enclosure/protection dimension |
-| motte | Clean but the metaphor was indirect |
-| cope | Clean but the casting-mold metaphor was too niche |
-
-### Availability
-
-| Registry | Status |
-| -------- | ------ |
-| Homebrew | Available |
-| npm | Available |
-| PyPI | Taken (Garmin SSO library; not a conflict for this bash CLI) |
-| Crates.io | Available |
-| "garth cli" on Google | Clean |
