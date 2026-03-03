@@ -467,7 +467,8 @@ garth_expand_home_path() {
     printf '%s' "$HOME"
     return 0
   fi
-  # shellcheck disable=SC2088 -- matching literal ~/prefix from config values
+  # Intentionally matching literal ~/prefix from config values
+  # shellcheck disable=SC2088
   if [[ "$path" == "~/"* ]]; then
     printf '%s' "$HOME/${path#\~/}"
     return 0
