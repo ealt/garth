@@ -1,9 +1,9 @@
 .PHONY: lint test check
 
 lint:
-	bash -n bin/garth lib/*.sh
+	bash -n bin/garth lib/*.sh install.sh
 	python3 -m py_compile lib/config-parser.py
-	shellcheck bin/garth lib/*.sh setup.sh
+	shellcheck bin/garth lib/*.sh setup.sh install.sh
 
 test:
 	bash tests/config_parser_smoke.sh

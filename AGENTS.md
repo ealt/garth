@@ -398,6 +398,7 @@ Configured in TOML under `[agents.<name>]`, each with a Docker build target in
 garth/
 ├── .github/
 │   ├── workflows/ci.yml               # CI: lint + smoke tests on push/PR
+│   ├── workflows/release.yml          # Release: tag → tarball + GitHub Release
 │   ├── dependabot.yml                 # Docker + Actions version bumps
 │   └── PULL_REQUEST_TEMPLATE.md       # PR checklist template
 ├── bin/garth                          # CLI entrypoint, command routing
@@ -424,6 +425,9 @@ garth/
 │   └── github-app-setup.md            # GitHub App wiring guide
 ├── templates/
 │   └── aerospace.example.toml         # AeroSpace config template
+├── VERSION                            # Semver version string (e.g. 0.1.0)
+├── CHANGELOG.md                       # Release history (Keep a Changelog)
+├── install.sh                         # Curl-pipe-bash installer
 ├── .editorconfig                      # Editor formatting rules
 ├── .shellcheckrc                      # ShellCheck config (source paths, suppressions)
 ├── Makefile                           # make lint / test / check

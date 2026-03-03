@@ -22,8 +22,14 @@ source "$GARTH_ROOT/lib/workspace.sh"
 garth_install_cleanup_trap
 
 GARTH_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/garth"
-# Standalone repo default: keep config in repo root unless explicitly overridden.
-GARTH_CONFIG_PATH="${GARTH_CONFIG_PATH:-$GARTH_ROOT/config.toml}"
+# Config resolution: explicit override > repo-root config.toml > XDG path.
+if [[ -n "${GARTH_CONFIG_PATH:-}" ]]; then
+  : # explicit override
+elif [[ -f "$GARTH_ROOT/config.toml" ]]; then
+  GARTH_CONFIG_PATH="$GARTH_ROOT/config.toml"
+else
+  GARTH_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/garth/config.toml"
+fi
 GARTH_BIN_PATH="$SCRIPT_DIR/garth"
 
 if garth_is_macos && [[ -x "/opt/homebrew/bin/python3" ]]; then
@@ -31,7 +37,11 @@ if garth_is_macos && [[ -x "/opt/homebrew/bin/python3" ]]; then
 fi
 
 usage() {
-  cat << 'USAGE'
+  local version
+  version="$(cat "$GARTH_ROOT/VERSION" 2>/dev/null || echo "unknown")"
+  cat << USAGE
+garth $version — workspace orchestrator for autonomous coding agents
+
 Usage: garth <command> [options]
 
 Workspace lifecycle:
@@ -3327,6 +3337,9 @@ main() {
   shift || true
 
   case "$command" in
+    --version|version)
+      cat "$GARTH_ROOT/VERSION" 2>/dev/null || echo "unknown"
+      ;;
     new) cmd_new "$@" ;;
     open) cmd_open "$@" ;;
     up) cmd_up "$@" ;;

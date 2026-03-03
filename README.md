@@ -52,11 +52,32 @@ to kick off several long-running agents and walk away.
 branch, git worktree, docker run, zellij, credential plumbing, and editor/browser
 setup. Token rotation, image builds, and session state are managed automatically.
 
+## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install ealt/tap/garth
+garth setup
+```
+
+### Curl installer (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ealt/garth/main/install.sh | bash
+garth setup
+```
+
+### From source
+
+```bash
+git clone https://github.com/ealt/garth.git && cd garth
+./setup.sh --yes
+```
+
 ## Quick Start
 
 ```bash
-git clone <repo-url> && cd garth
-./setup.sh --yes
 garth new . feature/my-feature     # new branch + worktree + session
 garth open .                       # open default branch
 garth up .                         # interactive launcher

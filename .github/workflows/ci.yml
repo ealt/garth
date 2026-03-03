@@ -13,14 +13,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Shell syntax check
-        run: bash -n bin/garth lib/*.sh
+        run: bash -n bin/garth lib/*.sh install.sh
       - name: Python syntax check
         run: python3 -m py_compile lib/config-parser.py
       - name: ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: bin lib
-          additional_files: setup.sh
+          additional_files: setup.sh install.sh
       - name: Config parser smoke test
         run: bash tests/config_parser_smoke.sh
       - name: Git helpers smoke test
