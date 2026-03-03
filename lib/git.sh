@@ -26,6 +26,36 @@ garth_git_remote_url() {
   git -C "$repo_root" remote get-url "$remote"
 }
 
+garth_git_default_branch() {
+  local repo_root="$1"
+
+  if [[ -n "${GARTH_DEFAULTS_DEFAULT_BRANCH:-}" ]]; then
+    echo "$GARTH_DEFAULTS_DEFAULT_BRANCH"
+    return 0
+  fi
+
+  local ref
+  ref=$(git -C "$repo_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || true)
+  if [[ "$ref" == refs/remotes/origin/* ]]; then
+    echo "${ref#refs/remotes/origin/}"
+    return 0
+  fi
+
+  if git -C "$repo_root" show-ref --verify --quiet refs/heads/main || \
+     git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main; then
+    echo "main"
+    return 0
+  fi
+
+  if git -C "$repo_root" show-ref --verify --quiet refs/heads/master || \
+     git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/master; then
+    echo "master"
+    return 0
+  fi
+
+  garth_git_current_branch "$repo_root"
+}
+
 # Supports:
 #   git@github.com:owner/repo.git
 #   https://github.com/owner/repo.git
@@ -122,4 +152,34 @@ garth_git_create_worktree() {
 garth_git_list_worktrees() {
   local repo_root="$1"
   git -C "$repo_root" worktree list --porcelain
+}
+
+garth_git_find_worktree_for_branch() {
+  local repo_root="$1"
+  local branch="$2"
+  local line current_worktree current_branch
+
+  current_worktree=""
+  current_branch=""
+  while IFS= read -r line; do
+    case "$line" in
+      worktree\ *)
+        current_worktree="${line#worktree }"
+        current_branch=""
+        ;;
+      branch\ refs/heads/*)
+        current_branch="${line#branch refs/heads/}"
+        if [[ "$current_branch" == "$branch" && -n "$current_worktree" ]]; then
+          echo "$current_worktree"
+          return 0
+        fi
+        ;;
+      "")
+        current_worktree=""
+        current_branch=""
+        ;;
+    esac
+  done < <(garth_git_list_worktrees "$repo_root")
+
+  return 1
 }

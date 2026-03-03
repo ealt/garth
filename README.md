@@ -16,7 +16,9 @@ through 1Password, and keeps Git auth refreshed without restarting containers.
 ```bash
 git clone <repo-url> && cd garth
 ./setup.sh --yes
-garth boot .
+garth new . feature/my-feature     # new branch + worktree + session
+garth open .                       # open default branch
+garth up .                         # interactive launcher
 ```
 
 ## Why garth
@@ -98,7 +100,7 @@ This repo bootstrap script:
 - on macOS, offers to install `aerospace` via Homebrew (auto in `--yes`)
 - skips GitHub App ref prompts when already done
 - auto-builds missing default Docker images when Docker is available
-- validates agent binaries in Docker images at boot and rebuilds if needed
+- validates agent binaries in Docker images at launch and rebuilds if needed
 
 For automation/non-interactive runs:
 
@@ -182,13 +184,69 @@ Feature notes:
 
 ## Usage
 
-### Boot a workspace
+### Start a new feature
 
 ```bash
-garth boot .
+garth new . feature/auth                    # branch from default branch
+garth new . hotfix-login --base release/2.1 # branch from a specific ref
 ```
 
-Common options:
+Creates a new branch, worktree, Docker containers, and Zellij session — all
+derived from the branch name.
+
+### Open an existing branch
+
+```bash
+garth open .                                # open the repo's default branch
+garth open . feature/auth                   # open an existing feature branch
+```
+
+Reuses existing worktrees and sessions when available. If a live session exists
+for the branch, reattaches to it automatically.
+
+### Interactive launcher
+
+```bash
+garth up .                                  # full interactive wizard
+garth up . --auto                           # non-interactive, all defaults
+garth up . --branch feature/auth            # skip branch step, wizard for rest
+```
+
+When run with no flags, presents a step-by-step wizard to select a branch,
+worktree, and session. Each step has smart defaults (hit Enter to accept).
+Typing a non-number at the branch step creates a new branch with that name.
+
+### List sessions
+
+```bash
+garth ps                                    # full table with status
+garth ps -q                                 # session IDs only (for piping)
+```
+
+### Stop and remove sessions
+
+```bash
+garth stop a1b2c3                           # stop session (preserves worktree)
+garth down a1b2c3                           # remove session + all resources
+garth down a1b2c3 -y                        # remove without confirmation
+garth ps -q | xargs garth stop              # stop all sessions
+```
+
+`garth stop` halts a session's Zellij session and Docker containers but
+preserves the worktree and session state so it can be resumed later with
+`garth open`. `garth down` removes everything including managed worktrees
+(warns before deleting if there are uncommitted changes).
+
+### Pipe container IDs to Docker
+
+```bash
+garth containers a1b2c3 | xargs docker logs
+garth containers a1b | xargs docker stats
+```
+
+### Common options
+
+These flags apply to `new`, `open`, and `up`:
 
 - `--agents claude,codex`
 - `--auth-passthrough claude,codex`
@@ -220,12 +278,6 @@ Auth note:
 - on interactive terminals, when a secret read requires 1Password auth,
   `garth` auto-attempts `eval "$(op signin)"` and retries
 
-### Create and boot a worktree
-
-```bash
-garth worktree . feature/new-flow --from origin/main
-```
-
 ### Run one agent directly
 
 ```bash
@@ -240,19 +292,13 @@ garth token .
 
 `garth` caches recently minted GitHub installation tokens in
 `$XDG_STATE_HOME/garth/token-cache` (permissions `0700/0600`) and reuses them
-until they are near expiry. This avoids unnecessary 1Password prompts on every
-`boot`.
+until they are near expiry. This avoids unnecessary 1Password prompts.
 
-### Session control
+### Diagnostics
 
 ```bash
 garth doctor --repo .
 garth doctor --repo . --deep
-garth status
-garth status --json
-garth stop garth-myrepo-feature__x
-garth stop --repo .
-garth stop --all --yes
 ```
 
 ## Security Model
@@ -291,7 +337,7 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
 - `1Password sign-in keeps getting requested`: ensure you are running `garth`
   interactively (TTY attached) so auto sign-in can prompt, and verify `op whoami`
   succeeds in the same shell
-- `garth boot keeps prompting for 1Password`: check token cache reuse with
+- `garth keeps prompting for 1Password`: check token cache reuse with
   `garth token . --machine`; if the token is near expiry, a fresh `op` auth is
   expected
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
@@ -303,14 +349,15 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
 - `bash: line 1: claude: command not found`: rebuild `garth-claude:latest`
   from the `garth` repo (`garth setup` is simplest)
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
-- `Session already exists`: run `garth stop <session>` first
+- `Session already exists`: run `garth stop <id>` first (find the ID with
+  `garth ps`)
 - `macOS asks to install Developer Tools for python3`: ensure
   `/opt/homebrew/bin/python3` exists (`brew install python`); `garth` prefers
-  that interpreter at runtime. On macOS, `garth boot` also updates GUI app PATH
+  that interpreter at runtime. On macOS, `garth` also updates GUI app PATH
   via `launchctl setenv PATH ...`; it also creates a `python` shim at
   `~/.local/state/garth/gui-bin/python` for tools that invoke `python` (not
-  `python3`). Fully quit/reopen Cursor after boot so the new environment is
-  picked up.
+  `python3`). Fully quit/reopen Cursor after launching a session so the new
+  environment is picked up.
 
 ## Contributing
 

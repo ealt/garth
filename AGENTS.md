@@ -20,22 +20,37 @@ development workflow. See also:
 - `bin/garth doctor --repo .` — validate auth/config/runtime prerequisites
 - `bin/garth doctor --repo . --deep` — deep checks including Docker probes
 
-### Running
+### Workspace Lifecycle
 
-- `garth boot .` — primary workflow: mint token, generate Zellij layout, launch
-  agents
-- `garth worktree . feature/branch --from origin/main` — create worktree and
-  boot
+- `garth new . feature/branch` — create branch + worktree + session
+- `garth new . feature/branch --base origin/main` — with explicit base ref
+- `garth open .` — open default branch (reuse session if exists)
+- `garth open . feature/branch` — open existing branch
+- `garth up .` — interactive wizard
+- `garth up . --auto` — non-interactive with wizard defaults
+
+### Session Management
+
+- `garth ps` — list sessions with status
+- `garth ps -q` — list session IDs only (for piping)
+- `garth containers <id>` — list container IDs for a session
+- `garth stop <id>` — stop a session (preserve worktree and state)
+- `garth down <id>` — remove session and all resources
+- `garth down <id> -y` — remove without confirmation
+
+### Other
+
 - `garth agent . codex --sandbox docker` — run a single agent
 - `garth token .` — mint a GitHub App token
-- `garth status` / `garth status --json` — show active sessions
-- `garth stop <session>` / `garth stop --repo .` / `garth stop --all --yes`
+- `garth doctor --repo .` — diagnose setup and auth health
 
 ### Testing
 
 - `bash tests/config_parser_smoke.sh`
 - `bash tests/git_helpers_smoke.sh`
 - `bash tests/zellij_layout_smoke.sh`
+- `bash tests/session_helpers_smoke.sh`
+- `bash tests/cli_open_smoke.sh`
 
 ### Syntax Checks
 
@@ -51,7 +66,7 @@ development workflow. See also:
 
 ### Entry Point Flow
 
-`bin/garth` (~2229 lines) is the CLI entrypoint and command router.
+`bin/garth` is the CLI entrypoint and command router.
 
 1. Resolves symlinks to find `GARTH_ROOT`
 2. Sources all `lib/*.sh` modules (each uses include-once guards)
@@ -60,17 +75,26 @@ development workflow. See also:
 4. Installs EXIT/INT/TERM cleanup trap
 5. Dispatches to the appropriate `cmd_*` function:
 
-| Command | Function | Line |
-|---------|----------|------|
-| `boot` | `cmd_boot` | 314 |
-| `worktree` | `cmd_worktree` | 651 |
-| `agent` | `cmd_agent` | 706 |
-| `token` | `cmd_token` | 894 |
-| `status` | `cmd_status` | 1003 |
-| `stop` | `cmd_stop` | 1148 |
-| `setup` | `cmd_setup` | 1510 |
-| `internal-refresh` | `cmd_internal_refresh` | 1639 |
-| `doctor` | `cmd_doctor` | 1772 |
+| Command | Function |
+|---------|----------|
+| `new` | `cmd_new` |
+| `open` | `cmd_open` |
+| `up` | `cmd_up` |
+| `ps` | `cmd_ps` |
+| `containers` | `cmd_containers` |
+| `stop` | `cmd_stop` |
+| `down` | `cmd_down` |
+| `agent` | `cmd_agent` |
+| `token` | `cmd_token` |
+| `setup` | `cmd_setup` |
+| `internal-refresh` | `cmd_internal_refresh` |
+| `doctor` | `cmd_doctor` |
+
+The workspace launch commands (`new`, `open`, `up`) all delegate to an internal
+`garth_launch_workspace` function which handles token minting, Zellij layout
+generation, container setup, and session state persistence. `cmd_up` provides
+an interactive wizard that collects branch/worktree/session choices and then
+calls `cmd_new` or `cmd_open` with the resolved flags.
 
 ### Config Flow
 
@@ -113,17 +137,33 @@ lifecycle), `garth_redact_secret_text` (scrub secrets from strings),
 
 **Dependencies:** None (base module).
 
-### lib/git.sh (125 lines)
+### lib/git.sh
 
 Thin wrappers around `git` for repo introspection, remote URL parsing,
-session-name generation, and worktree management.
+session-name generation, worktree management, and default branch detection.
 
 **Key functions:** `garth_git_repo_root`, `garth_git_current_branch`,
 `garth_git_repo_name`, `garth_git_remote_url`,
 `garth_git_owner_repo_from_remote` (parse `owner/repo` from SSH/HTTPS URLs),
 `garth_git_https_url_from_remote`, `garth_git_session_name` (deterministic
-`garth-<repo>-<branch-slug>`, capped at 80 chars), `garth_git_worktree_path`,
-`garth_git_create_worktree`, `garth_git_list_worktrees`.
+`garth-<repo>-<branch-slug>`, capped at 80 chars), `garth_git_default_branch`
+(config → `origin/HEAD` → `main` → `master` fallback),
+`garth_git_worktree_path`, `garth_git_create_worktree`,
+`garth_git_list_worktrees`, `garth_git_find_worktree_for_branch` (look up
+existing worktree by branch name).
+
+**Dependencies:** `lib/common.sh`.
+
+### lib/session.sh
+
+Session state management: reading/writing session state files, generating
+random session IDs, and looking up sessions by branch or ID prefix.
+
+**Key functions:** `ensure_state_root`, `session_dir_for`, `write_state_value`,
+`read_state_value`, `garth_session_list_dirs`, `garth_session_id_for_dir`,
+`garth_session_name_for_dir`, `garth_session_generate_id` (random 6-char hex),
+`garth_find_sessions_for_branch` (lookup by repo+branch),
+`garth_find_sessions_by_id_prefix`.
 
 **Dependencies:** `lib/common.sh`.
 
@@ -269,6 +309,7 @@ automatic secret redaction.
 | Env vars | `GARTH_<SECTION>_<KEY>` | `GARTH_DEFAULTS_SANDBOX` |
 | Agent config | `GARTH_AGENT_<UPPERNAME>_<FIELD>` | `GARTH_AGENT_CLAUDE_BASE_COMMAND` |
 | Session names | `garth-<repo>-<branch-slug>` | `garth-myapp-feature__auth` |
+| Session IDs | random 6-char hex | `a1b2c3` |
 | Container names | `<session>-<agent>` | `garth-myapp-main-claude` |
 | Include guards | `GARTH_<MODULE>_SH_LOADED` | `GARTH_CONTAINER_SH_LOADED` |
 
@@ -359,15 +400,16 @@ garth/
 │   ├── workflows/ci.yml               # CI: lint + smoke tests on push/PR
 │   ├── dependabot.yml                 # Docker + Actions version bumps
 │   └── PULL_REQUEST_TEMPLATE.md       # PR checklist template
-├── bin/garth                          # CLI entrypoint, command routing (~2229 lines)
+├── bin/garth                          # CLI entrypoint, command routing
 ├── lib/
-│   ├── common.sh                      # Logging, dry-run, cleanup, utilities (327 lines)
-│   ├── git.sh                         # Git repo/worktree helpers (125 lines)
-│   ├── secrets.sh                     # 1Password secret retrieval (108 lines)
-│   ├── github-app.sh                  # GitHub App JWT + token minting (278 lines)
-│   ├── container.sh                   # Docker lifecycle, security hardening (840 lines)
-│   ├── zellij.sh                      # Zellij session/layout management (249 lines)
-│   ├── workspace.sh                   # macOS GUI integrations (446 lines)
+│   ├── common.sh                      # Logging, dry-run, cleanup, utilities
+│   ├── git.sh                         # Git repo/worktree helpers
+│   ├── session.sh                     # Session state management, ID generation
+│   ├── secrets.sh                     # 1Password secret retrieval
+│   ├── github-app.sh                  # GitHub App JWT + token minting
+│   ├── container.sh                   # Docker lifecycle, security hardening
+│   ├── zellij.sh                      # Zellij session/layout management
+│   ├── workspace.sh                   # macOS GUI integrations
 │   └── config-parser.py               # TOML validation, env export (Python)
 ├── docker/
 │   ├── Dockerfile                     # Multi-target: claude, codex, opencode, gemini
@@ -375,7 +417,9 @@ garth/
 ├── tests/
 │   ├── config_parser_smoke.sh         # Config parser smoke tests
 │   ├── git_helpers_smoke.sh           # Git helper smoke tests
-│   └── zellij_layout_smoke.sh         # Zellij layout smoke tests
+│   ├── zellij_layout_smoke.sh         # Zellij layout smoke tests
+│   ├── session_helpers_smoke.sh       # Session state smoke tests
+│   └── cli_open_smoke.sh             # CLI open command smoke tests
 ├── docs/
 │   └── github-app-setup.md            # GitHub App wiring guide
 ├── templates/

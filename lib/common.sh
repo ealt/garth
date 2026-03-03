@@ -67,6 +67,21 @@ garth_ask_yn() {
   done
 }
 
+garth_has_tty() {
+  [[ -t 0 && -t 1 ]]
+}
+
+garth_prompt_with_default() {
+  local prompt="$1"
+  local default="$2"
+  local answer=""
+  read -r -p "$prompt [$default]: " answer
+  if [[ -z "$answer" ]]; then
+    answer="$default"
+  fi
+  printf '%s' "$answer"
+}
+
 garth_require_cmd() {
   local cmd="$1"
   command -v "$cmd" >/dev/null 2>&1 || garth_die "Missing required command: $cmd" 2

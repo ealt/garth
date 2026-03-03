@@ -6,6 +6,7 @@ workspace = "auto"
 safety_mode = "safe"
 docker_image_prefix = "garth"
 auth_passthrough = []
+default_branch = "main"
 
 [token_refresh]
 enabled = true

@@ -12,6 +12,7 @@ GARTH_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 source "$GARTH_ROOT/lib/common.sh"
 source "$GARTH_ROOT/lib/git.sh"
+source "$GARTH_ROOT/lib/session.sh"
 source "$GARTH_ROOT/lib/secrets.sh"
 source "$GARTH_ROOT/lib/github-app.sh"
 source "$GARTH_ROOT/lib/container.sh"
@@ -33,24 +34,26 @@ usage() {
   cat << 'USAGE'
 Usage: garth <command> [options]
 
-Commands:
-  boot <dir>                      Launch workspace (zellij + agents + tools)
-  worktree <repo-dir> <branch>   Create worktree, then boot
-  agent <dir> <name>             Run one agent in docker or host mode
-  token <dir>                    Mint a GitHub App installation token
-  doctor [--repo <dir>]          Diagnose local setup and auth health
-  status                          Show active garth sessions
-  stop <session>|--repo <dir>|--all
-                                  Stop sessions and containers
-  setup                           First-time setup helper
+Workspace lifecycle:
+  new <dir> <name>        Create a new branch, worktree, and session
+  open <dir> [branch]     Open an existing branch, reusing session/worktree
+  up <dir> [flags]        Interactive wizard (or explicit flags) to launch
+
+Session management:
+  ps [-q]                 List all sessions with status
+  stop <id>               Stop a session (preserves worktree and state)
+  down <id> [-y]          Remove a session and all its resources
+  containers <id>         List Docker container IDs for a session
+
+Other:
+  agent <dir> <name>      Run a single agent in docker or host mode
+  token <dir>             Mint a GitHub App installation token
+  doctor [--repo <dir>] [--deep] [--skip-token]
+                          Diagnose local setup and auth health
+  setup                   First-time setup helper
 
 Run 'garth <command> --help' for command-specific options.
 USAGE
-}
-
-ensure_state_root() {
-  mkdir -p "$GARTH_STATE_ROOT/sessions"
-  chmod 700 "$GARTH_STATE_ROOT" "$GARTH_STATE_ROOT/sessions"
 }
 
 config_env() {
@@ -105,26 +108,6 @@ resolve_agents() {
     [[ -n "$agent" ]] || continue
     agent_exists "$agent" || garth_die "Unknown agent in selection: $agent" 1
   done
-}
-
-session_dir_for() {
-  local session="$1"
-  echo "$GARTH_STATE_ROOT/sessions/$session"
-}
-
-write_state_value() {
-  local session_dir="$1"
-  local key="$2"
-  local value="$3"
-  printf '%s\n' "$value" > "$session_dir/$key"
-}
-
-read_state_value() {
-  local session_dir="$1"
-  local key="$2"
-  if [[ -f "$session_dir/$key" ]]; then
-    cat "$session_dir/$key"
-  fi
 }
 
 token_cache_dir() {
@@ -311,7 +294,7 @@ garth_post_session_report() {
   fi
 }
 
-cmd_boot() {
+garth_launch_workspace() {
   local dir=""
   local agents_csv=""
   local auth_passthrough_csv=""
@@ -319,6 +302,11 @@ cmd_boot() {
   local sandbox=""
   local workspace=""
   local safety_mode=""
+  local session_override=""
+  local session_id_override=""
+  local worktree_managed="false"
+  local worktree_state="reused"
+  local session_state="new"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -350,6 +338,26 @@ cmd_boot() {
         safety_mode="$2"
         shift 2
         ;;
+      --session-name)
+        session_override="$2"
+        shift 2
+        ;;
+      --session-id)
+        session_id_override="$2"
+        shift 2
+        ;;
+      --worktree-managed)
+        worktree_managed="$2"
+        shift 2
+        ;;
+      --worktree-state)
+        worktree_state="$2"
+        shift 2
+        ;;
+      --session-state)
+        session_state="$2"
+        shift 2
+        ;;
       --dry-run)
         GARTH_DRY_RUN=true
         shift
@@ -360,7 +368,7 @@ cmd_boot() {
         ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth boot <dir> [options]
+Usage: garth launch-workspace <dir> [internal options]
 
 Options:
   --agents <a,b>              Comma-separated agents
@@ -376,7 +384,7 @@ HELP
         return 0
         ;;
       -* )
-        garth_die "Unknown option for boot: $1" 1
+        garth_die "Unknown launch option: $1" 1
         ;;
       *)
         if [[ -z "$dir" ]]; then
@@ -389,7 +397,7 @@ HELP
     esac
   done
 
-  [[ -n "$dir" ]] || garth_die "boot requires <dir>" 1
+  [[ -n "$dir" ]] || garth_die "launch requires <dir>" 1
 
   load_config
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
@@ -435,23 +443,28 @@ HELP
     garth_require_cmd zellij
   fi
 
-  local abs_dir repo_root branch repo_name session session_dir
+  local abs_dir repo_root branch repo_name session session_dir session_id
   abs_dir=$(garth_abs_path "$dir")
   repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
   branch=$(garth_git_current_branch "$repo_root")
   repo_name=$(garth_git_repo_name "$repo_root")
-  session=$(garth_git_session_name "$repo_name" "$branch")
-  if [[ "$(garth_zellij_session_state "$session")" != "missing" ]]; then
-    local base_session="$session"
-    local n=2
-    while [[ "$(garth_zellij_session_state "${base_session}-${n}")" != "missing" ]]; do
-      n=$((n + 1))
-    done
-    session="${base_session}-${n}"
-    garth_log_warn "Reusing session name is unavailable; using $session"
+  if [[ -n "$session_override" ]]; then
+    session="$session_override"
+  else
+    session=$(garth_git_session_name "$repo_name" "$branch")
+    if [[ "$(garth_zellij_session_state "$session")" != "missing" ]]; then
+      local base_session="$session"
+      local n=2
+      while [[ "$(garth_zellij_session_state "${base_session}-${n}")" != "missing" ]]; do
+        n=$((n + 1))
+      done
+      session="${base_session}-${n}"
+      garth_log_warn "Reusing session name is unavailable; using $session"
+    fi
   fi
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     session_dir=$(garth_make_temp_dir)
+    session_id="${session_id_override:-dryrun}"
   else
     session_dir=$(session_dir_for "$session")
 
@@ -464,14 +477,15 @@ HELP
         fi
         garth_log_warn "Found stale active state for $session; cleaning it up"
         stop_session "$session"
-      else
-        garth_log_warn "Found stale session directory for $session; removing it"
-        rm -rf "$session_dir"
       fi
     fi
 
     mkdir -p "$session_dir"
     chmod 700 "$session_dir"
+    session_id="${session_id_override:-$(read_state_value "$session_dir" "id")}"
+    if [[ -z "$session_id" ]]; then
+      session_id=$(garth_session_generate_id)
+    fi
   fi
 
   local token expires_at expires_epoch installation_id owner_repo
@@ -535,12 +549,26 @@ HELP
   local agents_csv_effective
   agents_csv_effective=$(garth_join_by "," "${GARTH_SELECTED_AGENTS[@]}")
 
+  garth_log_info "Repo:      $repo_name (${owner_repo})"
+  garth_log_info "Branch:    $branch"
+  if [[ "$worktree_state" == "none" ]]; then
+    garth_log_info "Worktree:  - (none)"
+  else
+    garth_log_info "Worktree:  $(basename "$abs_dir") (${worktree_state})"
+  fi
+  garth_log_info "Session:   $session  $session_id  ($session_state)"
+  garth_log_info "Agents:    $agents_csv_effective"
+
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     garth_log_info "[dry-run] skipping persistent session state writes"
   else
     write_state_value "$session_dir" "active" "1"
+    rm -f "$session_dir/stopped_epoch"
+    write_state_value "$session_dir" "id" "$session_id"
+    write_state_value "$session_dir" "session" "$session"
     write_state_value "$session_dir" "repo_root" "$repo_root"
     write_state_value "$session_dir" "worktree" "$abs_dir"
+    write_state_value "$session_dir" "worktree_managed" "$worktree_managed"
     write_state_value "$session_dir" "branch" "$branch"
     write_state_value "$session_dir" "owner_repo" "$owner_repo"
     write_state_value "$session_dir" "agents_csv" "$agents_csv_effective"
@@ -555,6 +583,7 @@ HELP
     write_state_value "$session_dir" "token_file" "$token_file"
     garth_audit_log "$session_dir" "session_start" \
       "session=$session" \
+      "session_id=$session_id" \
       "repo_root=$repo_root" \
       "worktree=$abs_dir" \
       "branch=$branch" \
@@ -644,20 +673,332 @@ HELP
     garth_audit_log "$session_dir" "session_start_failure" \
       "session=$session" \
       "reason=session_not_running_after_launch"
-    "$GARTH_BIN_PATH" stop "$session" --yes >/dev/null 2>&1 || true
+    stop_session "$session"
   fi
 }
 
-cmd_worktree() {
-  local repo_dir=""
+garth_branch_exists_local() {
+  local repo_root="$1"
+  local branch="$2"
+  git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"
+}
+
+garth_branch_exists_remote() {
+  local repo_root="$1"
+  local remote="$2"
+  local branch="$3"
+  git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$remote/$branch"
+}
+
+garth_list_remotes_for_branch() {
+  local repo_root="$1"
+  local branch="$2"
+  git -C "$repo_root" for-each-ref --format='%(refname:short)' "refs/remotes/*/$branch" | sed -E "s#/$branch\$##" | sort -u
+}
+
+garth_print_branch_suggestions() {
+  local repo_root="$1"
+  local needle="$2"
+  local suggestions
+  suggestions=$(git -C "$repo_root" for-each-ref --format='%(refname:short)' refs/heads refs/remotes | sed 's#^origin/HEAD$##' | sed '/^$/d' | grep -F "$needle" | head -n 8 || true)
+  if [[ -n "$suggestions" ]]; then
+    echo "Did you mean:" >&2
+    while IFS= read -r s; do
+      [[ -n "$s" ]] || continue
+      echo "  - ${s#origin/}" >&2
+    done <<< "$suggestions"
+  fi
+}
+
+garth_resolve_existing_branch() {
+  local repo_root="$1"
+  local branch="$2"
+  local remote_override="$3"
+
+  if garth_branch_exists_local "$repo_root" "$branch"; then
+    echo "$branch"
+    return 0
+  fi
+
+  git -C "$repo_root" fetch --all --prune >/dev/null 2>&1 || true
+
+  local -a remotes=()
+  local r
+  while IFS= read -r r; do
+    [[ -n "$r" ]] || continue
+    remotes+=("$r")
+  done < <(garth_list_remotes_for_branch "$repo_root" "$branch")
+
+  if [[ ${#remotes[@]} -eq 0 ]]; then
+    garth_print_branch_suggestions "$repo_root" "$branch"
+    garth_die "Branch not found locally or on remotes: $branch" 1
+  fi
+
+  local chosen_remote=""
+  if [[ -n "$remote_override" ]]; then
+    local found=false
+    for r in "${remotes[@]}"; do
+      if [[ "$r" == "$remote_override" ]]; then
+        found=true
+        chosen_remote="$remote_override"
+        break
+      fi
+    done
+    if [[ "$found" != "true" ]]; then
+      garth_die "Branch '$branch' was not found on remote '$remote_override'" 1
+    fi
+  elif [[ ${#remotes[@]} -eq 1 ]]; then
+    chosen_remote="${remotes[0]}"
+  else
+    local has_origin=false
+    for r in "${remotes[@]}"; do
+      if [[ "$r" == "origin" ]]; then
+        has_origin=true
+      fi
+    done
+    if [[ "$has_origin" == "true" ]]; then
+      chosen_remote="origin"
+    else
+      garth_die "Branch '$branch' exists on multiple remotes (${remotes[*]}). Use --remote <name>." 1
+    fi
+  fi
+
+  if ! garth_branch_exists_local "$repo_root" "$branch"; then
+    git -C "$repo_root" branch --track "$branch" "$chosen_remote/$branch" >/dev/null 2>&1 || true
+  fi
+  if ! garth_branch_exists_local "$repo_root" "$branch"; then
+    garth_die "Failed to create local tracking branch '$branch' from '$chosen_remote/$branch'" 1
+  fi
+  echo "$branch"
+}
+
+garth_unique_session_name() {
+  local repo_name="$1"
+  local branch="$2"
+  local base session n
+  base=$(garth_git_session_name "$repo_name" "$branch")
+  session="$base"
+  n=2
+  while [[ -d "$(session_dir_for "$session")" ]] || [[ "$(garth_zellij_session_state "$session")" != "missing" ]]; do
+    session="${base}-${n}"
+    n=$((n + 1))
+  done
+  echo "$session"
+}
+
+garth_find_session_dir_by_name() {
+  local name="$1"
+  local dir
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    if [[ "$(garth_session_name_for_dir "$dir")" == "$name" ]]; then
+      echo "$dir"
+      return 0
+    fi
+  done < <(garth_session_list_dirs)
+  return 1
+}
+
+garth_best_session_for_branch() {
+  local repo_root="$1"
+  local branch="$2"
+  local dir status_line status live_candidate stopped_candidate
+  live_candidate=""
+  stopped_candidate=""
+
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    status_line=$(garth_session_status_line "$dir")
+    status="${status_line#*$'\t'}"
+    case "$status" in
+      running*|detached)
+        if [[ -z "$live_candidate" ]]; then
+          live_candidate="$dir"
+        fi
+        ;;
+      stopped)
+        if [[ -z "$stopped_candidate" ]]; then
+          stopped_candidate="$dir"
+        fi
+        ;;
+    esac
+  done < <(garth_sort_session_dirs_by_started < <(garth_find_sessions_for_branch "$repo_root" "$branch"))
+
+  if [[ -n "$live_candidate" ]]; then
+    echo "$live_candidate"
+  elif [[ -n "$stopped_candidate" ]]; then
+    echo "$stopped_candidate"
+  fi
+}
+
+garth_attach_if_running() {
+  local session_dir="$1"
+  [[ -n "$session_dir" ]] || return 1
+  local session
+  session=$(garth_session_name_for_dir "$session_dir")
+  if [[ "$(garth_zellij_session_state "$session")" == "running" ]]; then
+    garth_log_info "Reattaching session: $session ($(garth_session_id_for_dir "$session_dir"))"
+    garth_zellij_launch "$session" "$session_dir/layout.kdl"
+    return 0
+  fi
+  return 1
+}
+
+cmd_new() {
+  local dir=""
   local branch=""
-  local from_ref="origin/main"
-  local forward=()
+  local base_ref=""
+  local no_worktree=false
+  local -a forward=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --from)
-        from_ref="$2"
+      --base)
+        base_ref="$2"
+        shift 2
+        ;;
+      --no-worktree)
+        no_worktree=true
+        shift
+        ;;
+      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
+        forward+=("$1")
+        if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
+          shift
+        else
+          forward+=("$2")
+          shift 2
+        fi
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth new <dir> <name> [options]
+
+Create a new branch, worktree, and session. Everything is derived from <name>.
+
+Arguments:
+  <dir>                   Path to the git repository
+  <name>                  Name for the new branch (must not already exist)
+
+Options:
+  --base <ref>            Base ref for the new branch (default: repo default branch)
+  --no-worktree           Create branch in-place instead of a worktree
+  --agents <a,b>          Comma-separated agents (overrides config)
+  --auth-passthrough <a,b>
+                          Docker auth passthrough for selected agents
+  --sandbox docker|none   Runtime sandbox mode
+  --no-sandbox            Alias for --sandbox none
+  --network bridge|none   Docker network mode
+  --safety safe|permissive
+                          Agent argument preset
+  --workspace <N|auto>    AeroSpace workspace
+  --dry-run               Print commands without executing
+  --yes, -y               Auto-confirm prompts
+
+Examples:
+  garth new . feature/auth          Create feature/auth from default branch
+  garth new . hotfix --base v2.1    Create hotfix from v2.1 tag
+HELP
+        return 0
+        ;;
+      -*)
+        garth_die "Unknown option for new: $1" 1
+        ;;
+      *)
+        if [[ -z "$dir" ]]; then
+          dir="$1"
+        elif [[ -z "$branch" ]]; then
+          branch="$1"
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "$dir" && -n "$branch" ]] || garth_die "new requires <dir> <name>" 1
+  load_config
+
+  local abs_dir repo_root repo_name session session_id target_dir
+  abs_dir=$(garth_abs_path "$dir")
+  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
+
+  if garth_branch_exists_local "$repo_root" "$branch" || git -C "$repo_root" for-each-ref --format='%(refname)' "refs/remotes/*/$branch" | grep -q .; then
+    garth_die "Branch already exists: $branch (use 'garth open $dir $branch')" 1
+  fi
+
+  base_ref="${base_ref:-$(garth_git_default_branch "$repo_root")}"
+  if ! git -C "$repo_root" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+    echo "Base ref '$base_ref' was not found. Available branches:" >&2
+    git -C "$repo_root" for-each-ref --format='  - %(refname:short)' refs/heads refs/remotes >&2 || true
+    exit 1
+  fi
+
+  repo_name=$(garth_git_repo_name "$repo_root")
+  session=$(garth_unique_session_name "$repo_name" "$branch")
+  session_id=$(garth_session_generate_id)
+
+  if [[ "$no_worktree" == "true" ]]; then
+    git -C "$repo_root" checkout -b "$branch" "$base_ref" >/dev/null
+    target_dir="$repo_root"
+    garth_launch_workspace "$target_dir" \
+      --session-name "$session" \
+      --session-id "$session_id" \
+      --worktree-managed false \
+      --worktree-state none \
+      --session-state new \
+      "${forward[@]}"
+    return 0
+  fi
+
+  target_dir=$(garth_git_worktree_path "$repo_root" "$branch")
+  mkdir -p "$(dirname "$target_dir")"
+  git -C "$repo_root" worktree add "$target_dir" -b "$branch" "$base_ref"
+  garth_launch_workspace "$target_dir" \
+    --session-name "$session" \
+    --session-id "$session_id" \
+    --worktree-managed true \
+    --worktree-state created \
+    --session-state new \
+    "${forward[@]}"
+}
+
+cmd_open() {
+  local dir=""
+  local branch=""
+  local remote_name=""
+  local no_worktree=false
+  local new_worktree=false
+  local new_session=false
+  local worktree_path=""
+  local session_name_override=""
+  local -a forward=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --remote)
+        remote_name="$2"
+        shift 2
+        ;;
+      --no-worktree)
+        no_worktree=true
+        shift
+        ;;
+      --new-worktree)
+        new_worktree=true
+        shift
+        ;;
+      --new-session)
+        new_session=true
+        shift
+        ;;
+      --worktree)
+        worktree_path="$2"
+        shift 2
+        ;;
+      --session)
+        session_name_override="$2"
         shift 2
         ;;
       --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
@@ -671,36 +1012,514 @@ cmd_worktree() {
         ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth worktree <repo-dir> <branch> [--from <ref>] [boot flags...]
+Usage: garth open <dir> [<branch>] [options]
+
+Open an existing branch, reusing its session and worktree if they exist.
+If a live session exists for the branch, reattaches to it. If the branch
+exists only on the remote, fetches and creates a local tracking branch.
+
+Arguments:
+  <dir>                   Path to the git repository
+  <branch>                Branch to open (default: repo default branch)
+
+Options:
+  --remote <name>         Remote to fetch from when branch is remote-only
+                          (default: origin)
+  --worktree <path>       Use a specific worktree path
+  --session <name>        Reattach to a specific session by name
+  --new-worktree          Force creation of a new worktree
+  --new-session           Force creation of a new session
+  --no-worktree           Open branch in-place (fails if working tree is dirty)
+  --agents <a,b>          Comma-separated agents (overrides config)
+  --auth-passthrough <a,b>
+                          Docker auth passthrough for selected agents
+  --sandbox docker|none   Runtime sandbox mode
+  --no-sandbox            Alias for --sandbox none
+  --network bridge|none   Docker network mode
+  --safety safe|permissive
+                          Agent argument preset
+  --workspace <N|auto>    AeroSpace workspace
+  --dry-run               Print commands without executing
+  --yes, -y               Auto-confirm prompts
+
+Examples:
+  garth open .                      Open the repo's default branch
+  garth open . feature/auth         Open an existing feature branch
+  garth open . pr-branch --remote upstream
+                                    Open a branch from a non-origin remote
 HELP
         return 0
         ;;
-      -* )
-        garth_die "Unknown option for worktree: $1" 1
+      -*)
+        garth_die "Unknown option for open: $1" 1
         ;;
       *)
-        if [[ -z "$repo_dir" ]]; then
-          repo_dir="$1"
+        if [[ -z "$dir" ]]; then
+          dir="$1"
         elif [[ -z "$branch" ]]; then
           branch="$1"
         else
-          forward+=("$1")
+          garth_die "Unexpected argument: $1" 1
         fi
         shift
         ;;
     esac
   done
 
-  [[ -n "$repo_dir" && -n "$branch" ]] || garth_die "worktree requires <repo-dir> <branch>" 1
+  [[ -n "$dir" ]] || garth_die "open requires <dir>" 1
+  if [[ "$new_session" == "true" && -n "$session_name_override" ]]; then
+    garth_die "Conflicting flags: --session and --new-session" 1
+  fi
 
-  local repo_root
-  repo_root=$(garth_git_repo_root "$repo_dir") || garth_die "Not inside a git repo: $repo_dir" 1
+  load_config
+  ensure_state_root
 
-  local wt_path
-  wt_path=$(garth_git_create_worktree "$repo_root" "$branch" "$from_ref")
-  garth_log_success "Created worktree: $wt_path"
+  local abs_dir repo_root repo_name target_branch
+  abs_dir=$(garth_abs_path "$dir")
+  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
+  repo_name=$(garth_git_repo_name "$repo_root")
+  target_branch="${branch:-$(garth_git_default_branch "$repo_root")}"
+  target_branch=$(garth_resolve_existing_branch "$repo_root" "$target_branch" "$remote_name")
 
-  "$GARTH_BIN_PATH" boot "$wt_path" "${forward[@]}"
+  local selected_session_dir=""
+  if [[ -n "$session_name_override" ]]; then
+    selected_session_dir=$(garth_find_session_dir_by_name "$session_name_override" || true)
+    [[ -n "$selected_session_dir" ]] || garth_die "Session not found: $session_name_override" 1
+  elif [[ "$new_session" != "true" ]]; then
+    selected_session_dir=$(garth_best_session_for_branch "$repo_root" "$target_branch" || true)
+  fi
+
+  if [[ -z "$session_name_override" && ( "$new_worktree" == "true" || -n "$worktree_path" || "$no_worktree" == "true" ) ]]; then
+    selected_session_dir=""
+  fi
+
+  if [[ -n "$selected_session_dir" ]] && garth_attach_if_running "$selected_session_dir"; then
+    return 0
+  fi
+
+  local session session_id session_state target_dir worktree_state worktree_managed
+  session_state="new"
+  if [[ -n "$selected_session_dir" && "$new_session" != "true" ]]; then
+    session=$(garth_session_name_for_dir "$selected_session_dir")
+    session_id=$(garth_session_id_for_dir "$selected_session_dir")
+    session_state="resumed"
+  else
+    session=$(garth_unique_session_name "$repo_name" "$target_branch")
+    session_id=$(garth_session_generate_id)
+  fi
+
+  worktree_state="reused"
+  worktree_managed="false"
+  if [[ "$no_worktree" == "true" ]]; then
+    if [[ -n "$(git -C "$repo_root" status --porcelain 2>/dev/null || true)" ]]; then
+      garth_die "Cannot switch branches in-place with uncommitted changes at '$repo_root'. Commit/stash changes or omit --no-worktree." 1
+    fi
+    git -C "$repo_root" checkout "$target_branch" >/dev/null
+    target_dir="$repo_root"
+    worktree_state="none"
+  elif [[ -n "$worktree_path" ]]; then
+    target_dir=$(garth_abs_path "$worktree_path")
+    worktree_managed="false"
+  elif [[ "$new_worktree" != "true" && -n "$selected_session_dir" ]]; then
+    target_dir=$(read_state_value "$selected_session_dir" "worktree")
+    worktree_managed=$(read_state_value "$selected_session_dir" "worktree_managed")
+    [[ -n "$worktree_managed" ]] || worktree_managed="false"
+    if [[ -z "$target_dir" || ! -d "$target_dir" ]]; then
+      target_dir=""
+    fi
+  else
+    target_dir=""
+  fi
+
+  if [[ -z "${target_dir:-}" && "$no_worktree" != "true" ]]; then
+    if [[ "$new_worktree" != "true" ]]; then
+      target_dir=$(garth_git_find_worktree_for_branch "$repo_root" "$target_branch" || true)
+      if [[ -n "$target_dir" ]]; then
+        worktree_managed="true"
+        worktree_state="reused"
+      fi
+    fi
+  fi
+
+  if [[ -z "${target_dir:-}" && "$no_worktree" != "true" ]]; then
+    target_dir=$(garth_git_worktree_path "$repo_root" "$target_branch")
+    mkdir -p "$(dirname "$target_dir")"
+    git -C "$repo_root" worktree add "$target_dir" "$target_branch"
+    worktree_managed="true"
+    worktree_state="created"
+  fi
+
+  garth_launch_workspace "$target_dir" \
+    --session-name "$session" \
+    --session-id "$session_id" \
+    --worktree-managed "$worktree_managed" \
+    --worktree-state "$worktree_state" \
+    --session-state "$session_state" \
+    "${forward[@]}"
+}
+
+cmd_up() {
+  local dir=""
+  local branch=""
+  local new_branch=""
+  local base_ref=""
+  local remote_name=""
+  local worktree_path=""
+  local session_name=""
+  local auto=false
+  local auto_branch=false
+  local auto_worktree=false
+  local auto_session=false
+  local new_worktree=false
+  local new_session=false
+  local no_worktree=false
+  local -a forward=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch)
+        branch="$2"
+        shift 2
+        ;;
+      --new-branch)
+        new_branch="$2"
+        shift 2
+        ;;
+      --base)
+        base_ref="$2"
+        shift 2
+        ;;
+      --remote)
+        remote_name="$2"
+        shift 2
+        ;;
+      --worktree)
+        worktree_path="$2"
+        shift 2
+        ;;
+      --session)
+        session_name="$2"
+        shift 2
+        ;;
+      --new-worktree)
+        new_worktree=true
+        shift
+        ;;
+      --new-session)
+        new_session=true
+        shift
+        ;;
+      --auto-branch)
+        auto_branch=true
+        shift
+        ;;
+      --auto-worktree)
+        auto_worktree=true
+        shift
+        ;;
+      --auto-session)
+        auto_session=true
+        shift
+        ;;
+      --auto)
+        auto=true
+        shift
+        ;;
+      --no-worktree)
+        no_worktree=true
+        shift
+        ;;
+      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
+        forward+=("$1")
+        if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
+          shift
+        else
+          forward+=("$2")
+          shift 2
+        fi
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth up <dir> [options]
+
+Interactive workspace launcher. With no flags, presents a step-by-step wizard
+to select a branch, worktree, and session. With explicit flags, skips the
+corresponding wizard steps. With --auto, uses wizard defaults non-interactively.
+
+Arguments:
+  <dir>                   Path to the git repository
+
+Branch selection (wizard step 1):
+  --branch <name>         Use an existing branch (skips step 1)
+  --new-branch <name>     Create a new branch (skips step 1)
+  --base <ref>            Base ref for --new-branch (default: repo default branch)
+  --remote <name>         Remote for remote-only branches (default: origin)
+  --auto-branch           Use wizard default: currently checked-out branch
+
+Worktree selection (wizard step 2):
+  --worktree <path>       Use a specific worktree path (skips step 2)
+  --new-worktree          Force creation of a new worktree (skips step 2)
+  --no-worktree           No worktree, boot in-place (skips step 2)
+  --auto-worktree         Reuse if exists, create if not (skips step 2)
+
+Session selection (wizard step 3):
+  --session <name>        Reattach to a specific session (skips step 3)
+  --new-session           Force creation of a new session (skips step 3)
+  --auto-session          Resume if exists, create if not (skips step 3)
+
+Shorthand:
+  --auto                  Equivalent to --auto-branch --auto-worktree --auto-session
+
+General options:
+  --agents <a,b>          Comma-separated agents (overrides config)
+  --auth-passthrough <a,b>
+                          Docker auth passthrough for selected agents
+  --sandbox docker|none   Runtime sandbox mode
+  --no-sandbox            Alias for --sandbox none
+  --network bridge|none   Docker network mode
+  --safety safe|permissive
+                          Agent argument preset
+  --workspace <N|auto>    AeroSpace workspace
+  --dry-run               Print commands without executing
+  --yes, -y               Auto-confirm prompts
+
+Examples:
+  garth up .                            Full interactive wizard
+  garth up . --auto                     Non-interactive, all defaults
+  garth up . --branch feature/auth      Skip branch step, wizard for the rest
+  garth up . --new-branch fix/bug --base v2.1
+                                        Create new branch, wizard for worktree/session
+HELP
+        return 0
+        ;;
+      -*)
+        garth_die "Unknown option for up: $1" 1
+        ;;
+      *)
+        if [[ -z "$dir" ]]; then
+          dir="$1"
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "$dir" ]] || garth_die "up requires <dir>" 1
+
+  if [[ "$auto" == "true" ]]; then
+    auto_branch=true
+    auto_worktree=true
+    auto_session=true
+  fi
+
+  if [[ -n "$branch" && -n "$new_branch" ]]; then
+    garth_die "Conflicting flags: --branch and --new-branch" 1
+  fi
+
+  if [[ -n "$new_branch" ]]; then
+    local -a args=("$dir" "$new_branch")
+    [[ -n "$base_ref" ]] && args+=(--base "$base_ref")
+    [[ "$no_worktree" == "true" ]] && args+=(--no-worktree)
+    args+=("${forward[@]}")
+    cmd_new "${args[@]}"
+    return 0
+  fi
+
+  load_config
+  local abs_dir repo_root resolved_branch
+  abs_dir=$(garth_abs_path "$dir")
+  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
+
+  resolved_branch="$branch"
+  if [[ -z "$resolved_branch" && "$auto_branch" == "true" ]]; then
+    resolved_branch=$(garth_git_current_branch "$repo_root")
+  fi
+
+  if [[ -z "$resolved_branch" ]]; then
+    if ! garth_has_tty; then
+      garth_die "Interactive mode requires a terminal. Use --auto or explicit flags." 1
+    fi
+    local current_branch default_branch answer i
+    current_branch=$(garth_git_current_branch "$repo_root")
+    default_branch=$(garth_git_default_branch "$repo_root")
+    local -a branches_raw=()
+    local -a branches=()
+    while IFS= read -r i; do
+      [[ -n "$i" ]] || continue
+      branches_raw+=("$i")
+    done < <(git -C "$repo_root" for-each-ref --format='%(refname:short)' refs/heads)
+
+    local has_current=false
+    for i in "${branches_raw[@]}"; do
+      if [[ "$i" == "$current_branch" ]]; then
+        has_current=true
+        break
+      fi
+    done
+    if [[ "$has_current" == "true" ]]; then
+      branches+=("$current_branch")
+      for i in "${branches_raw[@]}"; do
+        [[ "$i" == "$current_branch" ]] && continue
+        branches+=("$i")
+      done
+    else
+      branches=("${branches_raw[@]}")
+    fi
+
+    echo "Branch:"
+    local idx=1
+    local b
+    for b in "${branches[@]}"; do
+      local tags=""
+      [[ "$b" == "$current_branch" ]] && tags=" * checked out"
+      [[ "$b" == "$default_branch" && "$b" != "$current_branch" ]] && tags=" default"
+      printf '  %d) %s%s\n' "$idx" "$b" "$tags"
+      idx=$((idx + 1))
+    done
+    read -r -p "[1] > " answer
+    if [[ -z "$answer" ]]; then
+      resolved_branch="${branches[0]}"
+    elif [[ "$answer" =~ ^[0-9]+$ ]] && ((answer >= 1 && answer <= ${#branches[@]})); then
+      resolved_branch="${branches[$((answer - 1))]}"
+    else
+      new_branch="$answer"
+      if [[ -z "$base_ref" ]]; then
+        local -a base_options=()
+        base_options+=("$current_branch")
+        if [[ "$default_branch" != "$current_branch" ]]; then
+          base_options+=("$default_branch")
+        fi
+        for b in "${branches[@]}"; do
+          local seen=false
+          local bo
+          for bo in "${base_options[@]}"; do
+            if [[ "$bo" == "$b" ]]; then
+              seen=true
+              break
+            fi
+          done
+          if [[ "$seen" != "true" ]]; then
+            base_options+=("$b")
+          fi
+        done
+
+        echo "Base:"
+        local bidx=1
+        for b in "${base_options[@]}"; do
+          local btags=""
+          [[ "$b" == "$current_branch" ]] && btags=" * checked out"
+          [[ "$b" == "$default_branch" && "$b" != "$current_branch" ]] && btags=" default"
+          printf '  %d) %s%s\n' "$bidx" "$b" "$btags"
+          bidx=$((bidx + 1))
+        done
+        local base_choice
+        read -r -p "[1] > " base_choice
+        base_choice="${base_choice:-1}"
+        if [[ "$base_choice" =~ ^[0-9]+$ ]] && ((base_choice >= 1 && base_choice <= ${#base_options[@]})); then
+          base_ref="${base_options[$((base_choice - 1))]}"
+        else
+          garth_die "Invalid base choice: $base_choice" 1
+        fi
+      fi
+    fi
+  fi
+
+  if [[ -n "$new_branch" ]]; then
+    local -a args=("$dir" "$new_branch")
+    [[ -n "$base_ref" ]] && args+=(--base "$base_ref")
+    [[ "$no_worktree" == "true" ]] && args+=(--no-worktree)
+    args+=("${forward[@]}")
+    cmd_new "${args[@]}"
+    return 0
+  fi
+
+  if [[ -z "$worktree_path" && "$new_worktree" != "true" && "$no_worktree" != "true" && "$auto_worktree" != "true" ]]; then
+    if ! garth_has_tty; then
+      garth_die "Interactive mode requires a terminal. Use --auto or explicit flags." 1
+    fi
+    local existing_worktree worktree_choice
+    existing_worktree=$(garth_git_find_worktree_for_branch "$repo_root" "$resolved_branch" || true)
+    if [[ -n "$existing_worktree" ]]; then
+      echo "Worktree:"
+      echo "  1) $(basename "$existing_worktree")      exists"
+      echo "  2) New worktree"
+      echo "  3) No worktree"
+      read -r -p "[1] > " worktree_choice
+      worktree_choice="${worktree_choice:-1}"
+      case "$worktree_choice" in
+        1) worktree_path="$existing_worktree" ;;
+        2) new_worktree=true ;;
+        3) no_worktree=true ;;
+        *) garth_die "Invalid worktree choice: $worktree_choice" 1 ;;
+      esac
+    else
+      echo "Worktree:"
+      echo "  1) Create worktree       recommended"
+      echo "  2) No worktree"
+      read -r -p "[1] > " worktree_choice
+      worktree_choice="${worktree_choice:-1}"
+      case "$worktree_choice" in
+        1) new_worktree=true ;;
+        2) no_worktree=true ;;
+        *) garth_die "Invalid worktree choice: $worktree_choice" 1 ;;
+      esac
+    fi
+  fi
+
+  if [[ -z "$session_name" && "$new_session" != "true" && "$auto_session" != "true" ]]; then
+    if ! garth_has_tty; then
+      garth_die "Interactive mode requires a terminal. Use --auto or explicit flags." 1
+    fi
+
+    local -a session_dirs=()
+    local session_dir
+    while IFS= read -r session_dir; do
+      [[ -n "$session_dir" ]] || continue
+      session_dirs+=("$session_dir")
+    done < <(garth_sort_session_dirs_by_started < <(garth_find_sessions_for_branch "$repo_root" "$resolved_branch"))
+
+    echo "Session:"
+    if [[ ${#session_dirs[@]} -eq 0 ]]; then
+      echo "  1) New session"
+      read -r -p "[1] > " _
+      new_session=true
+    else
+      local idx=1
+      for session_dir in "${session_dirs[@]}"; do
+        local sid sname status_line status
+        sid=$(garth_session_id_for_dir "$session_dir")
+        sname=$(garth_session_name_for_dir "$session_dir")
+        status_line=$(garth_session_status_line "$session_dir")
+        status="${status_line#*$'\t'}"
+        printf '  %d) %s  %s  %s\n' "$idx" "$sname" "$sid" "$status"
+        idx=$((idx + 1))
+      done
+      echo "  $idx) New session"
+      local session_choice
+      read -r -p "[1] > " session_choice
+      session_choice="${session_choice:-1}"
+      if [[ "$session_choice" =~ ^[0-9]+$ ]] && ((session_choice >= 1 && session_choice <= ${#session_dirs[@]})); then
+        session_name=$(garth_session_name_for_dir "${session_dirs[$((session_choice - 1))]}")
+      elif [[ "$session_choice" == "$idx" ]]; then
+        new_session=true
+      else
+        garth_die "Invalid session choice: $session_choice" 1
+      fi
+    fi
+  fi
+
+  local -a open_args=("$dir")
+  [[ -n "$resolved_branch" ]] && open_args+=("$resolved_branch")
+  [[ -n "$remote_name" ]] && open_args+=(--remote "$remote_name")
+  [[ -n "$worktree_path" ]] && open_args+=(--worktree "$worktree_path")
+  [[ -n "$session_name" ]] && open_args+=(--session "$session_name")
+  [[ "$new_worktree" == "true" ]] && open_args+=(--new-worktree)
+  [[ "$new_session" == "true" ]] && open_args+=(--new-session)
+  [[ "$no_worktree" == "true" ]] && open_args+=(--no-worktree)
+  open_args+=("${forward[@]}")
+  cmd_open "${open_args[@]}"
 }
 
 cmd_agent() {
@@ -1000,100 +1819,119 @@ count_session_containers() {
   docker ps -q --filter "label=garth.session=$session" | wc -l | tr -d ' '
 }
 
-cmd_status() {
-  local as_json=false
-  if [[ "${1:-}" == "--json" ]]; then
-    as_json=true
-  elif [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    echo "Usage: garth status [--json]"
+count_session_containers_all() {
+  local session="$1"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "0"
     return 0
-  elif [[ $# -gt 0 ]]; then
-    garth_die "Unknown option for status: $1" 1
   fi
+  docker ps -aq --filter "label=garth.session=$session" | wc -l | tr -d ' '
+}
 
-  ensure_state_root
-
-  local -a sessions=()
-  local dir
-  for dir in "$GARTH_STATE_ROOT"/sessions/*; do
-    [[ -d "$dir" ]] || continue
-    [[ -f "$dir/active" ]] || continue
-    sessions+=("$(basename "$dir")")
-  done
-
-  if [[ "$as_json" == "true" ]]; then
-    if [[ ${#sessions[@]} -eq 0 ]]; then
-      echo '{"sessions":[]}'
+garth_zellij_attachment_state() {
+  local session="$1"
+  local line
+  while IFS= read -r line; do
+    [[ "${line%% *}" == "$session" ]] || continue
+    if [[ "$line" =~ ([1-9][0-9]*)[[:space:]]+clients ]]; then
+      echo "attached"
       return 0
     fi
-
-    local first=true
-    printf '{"sessions":['
-    local session
-    for session in "${sessions[@]}"; do
-      local session_dir="$GARTH_STATE_ROOT/sessions/$session"
-      local repo_root branch agents_csv token_state started_epoch
-      repo_root=$(read_state_value "$session_dir" "repo_root")
-      branch=$(read_state_value "$session_dir" "branch")
-      agents_csv=$(read_state_value "$session_dir" "agents_csv")
-      token_state=$(read_state_value "$session_dir" "token_state")
-      started_epoch=$(read_state_value "$session_dir" "started_epoch")
-      local now uptime
-      now=$(garth_now_epoch)
-      uptime=$((now - ${started_epoch:-$now}))
-      local containers
-      containers=$(count_session_containers "$session")
-
-      [[ "$first" == "true" ]] || printf ','
-      first=false
-      garth_python - << 'PY' "$session" "$repo_root" "$branch" "$agents_csv" "$token_state" "$uptime" "$containers"
-import json
-import sys
-session, repo_root, branch, agents_csv, token_state, uptime, containers = sys.argv[1:]
-obj = {
-    "session": session,
-    "repo": repo_root,
-    "branch": branch,
-    "agents": [a for a in agents_csv.split(',') if a],
-    "containers": int(containers),
-    "token_state": token_state or "unknown",
-    "uptime_seconds": int(uptime),
+    if [[ "$line" =~ [[:space:]]0[[:space:]]+clients ]] || [[ "$line" == *"no clients"* ]]; then
+      echo "detached"
+      return 0
+    fi
+    echo "unknown"
+    return 0
+  done < <(zellij list-sessions -n 2>/dev/null || true)
+  echo "unknown"
 }
-print(json.dumps(obj), end="")
-PY
+
+garth_sort_session_dirs_by_started() {
+  local dir started
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    started=$(read_state_value "$dir" "started_epoch")
+    if [[ ! "$started" =~ ^[0-9]+$ ]]; then
+      started=0
+    fi
+    printf '%s\t%s\n' "$started" "$dir"
+  done | sort -nr -k1,1 | cut -f2-
+}
+
+garth_session_status_line() {
+  local session_dir="$1"
+  local session id token_state
+  session=$(garth_session_name_for_dir "$session_dir")
+  id=$(garth_session_id_for_dir "$session_dir")
+  token_state=$(read_state_value "$session_dir" "token_state")
+
+  local zellij_state attach_state active containers_running containers_all
+  zellij_state=$(garth_zellij_session_state "$session")
+  attach_state=$(garth_zellij_attachment_state "$session")
+  active="false"
+  [[ -f "$session_dir/active" ]] && active="true"
+  containers_running=$(count_session_containers "$session")
+  containers_all=$(count_session_containers_all "$session")
+
+  local status="" reason=""
+  if [[ "$token_state" == "degraded" ]]; then
+    status="degraded"
+    reason="token refresh degraded"
+  elif [[ "$zellij_state" != "running" && "$containers_running" -gt 0 ]]; then
+    status="degraded"
+    reason="zellij gone, containers alive"
+  elif [[ "$zellij_state" == "running" && "$containers_running" -eq 0 && "$active" == "true" ]]; then
+    status="degraded"
+    reason="container exited"
+  elif [[ -f "$session_dir/stopped_epoch" && ( "$zellij_state" == "running" || "$containers_running" -gt 0 || "$containers_all" -gt 0 ) ]]; then
+    status="degraded"
+    reason="stop incomplete"
+  elif [[ "$zellij_state" == "running" ]]; then
+    if [[ "$attach_state" == "detached" ]]; then
+      status="detached"
+    elif [[ "$attach_state" == "attached" ]]; then
+      status="running"
+    else
+      status="running(?)"
+    fi
+  elif [[ -f "$session_dir/stopped_epoch" || "$active" != "true" ]]; then
+    status="stopped"
+  else
+    status="degraded"
+    reason="state mismatch"
+  fi
+
+  if [[ "$status" == "degraded" && -n "$reason" ]]; then
+    printf '%s\t%s (%s)\n' "$id" "$status" "$reason"
+  else
+    printf '%s\t%s\n' "$id" "$status"
+  fi
+}
+
+garth_find_session_dir_by_id_prefix() {
+  local prefix="$1"
+  local -a matches=()
+  local dir
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    matches+=("$dir")
+  done < <(garth_find_sessions_by_id_prefix "$prefix")
+
+  if [[ ${#matches[@]} -eq 0 ]]; then
+    garth_die "No session matches ID prefix '$prefix'" 5
+  fi
+
+  if [[ ${#matches[@]} -gt 1 ]]; then
+    echo "Multiple sessions match prefix '$prefix'. Be more specific." >&2
+    local m
+    for m in "${matches[@]}"; do
+      echo "  $(garth_session_id_for_dir "$m")  $(garth_session_name_for_dir "$m")" >&2
     done
-    echo ']}'
-    return 0
+    exit 5
   fi
 
-  if [[ ${#sessions[@]} -eq 0 ]]; then
-    echo "No active garth sessions."
-    return 0
-  fi
-
-  printf '%-32s %-20s %-18s %-18s %-10s %-12s %-8s\n' \
-    "SESSION" "REPO" "BRANCH" "AGENTS" "CONTAINERS" "TOKEN" "UPTIME"
-
-  local session
-  for session in "${sessions[@]}"; do
-    local session_dir="$GARTH_STATE_ROOT/sessions/$session"
-    local repo_root branch agents_csv token_state started_epoch
-    repo_root=$(read_state_value "$session_dir" "repo_root")
-    branch=$(read_state_value "$session_dir" "branch")
-    agents_csv=$(read_state_value "$session_dir" "agents_csv")
-    token_state=$(read_state_value "$session_dir" "token_state")
-    started_epoch=$(read_state_value "$session_dir" "started_epoch")
-
-    local repo_short
-    repo_short=$(basename "$repo_root")
-    local now uptime containers
-    now=$(garth_now_epoch)
-    uptime=$(human_uptime $((now - ${started_epoch:-$now})))
-    containers=$(count_session_containers "$session")
-
-    printf '%-32s %-20s %-18s %-18s %-10s %-12s %-8s\n' \
-      "$session" "$repo_short" "$branch" "$agents_csv" "$containers" "${token_state:-unknown}" "$uptime"
-  done
+  printf '%s\n' "${matches[0]}"
 }
 
 stop_session() {
@@ -1115,6 +1953,7 @@ stop_session() {
     "agents=$agents_csv"
 
   rm -f "$session_dir/active" 2>/dev/null || true
+  write_state_value "$session_dir" "stopped_epoch" "$(garth_now_epoch)"
 
   local pid
   pid=$(read_state_value "$session_dir" "refresher_pid")
@@ -1135,51 +1974,225 @@ stop_session() {
   garth_audit_log "$session_dir" "zellij_stop" \
     "session=$session"
   garth_post_session_report "$session" "$session_dir" "$worktree"
-
-  if [[ "$GARTH_DRY_RUN" == "true" ]]; then
-    echo "[dry-run] rm -rf $session_dir"
-  else
-    garth_audit_log "$session_dir" "session_stop_complete" \
-      "session=$session"
-    rm -rf "$session_dir"
-  fi
+  garth_audit_log "$session_dir" "session_stop_complete" \
+    "session=$session"
 }
 
-cmd_stop() {
-  local target_session=""
-  local repo_dir=""
-  local stop_all=false
+stop_session_by_dir() {
+  local session_dir="$1"
+  local session
+  session=$(garth_session_name_for_dir "$session_dir")
+  stop_session "$session"
+}
+
+cmd_ps() {
+  local quiet=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --repo)
-        repo_dir="$2"
-        shift 2
-        ;;
-      --all)
-        stop_all=true
-        shift
-        ;;
-      --yes|-y)
-        GARTH_YES=true
-        shift
-        ;;
-      --dry-run)
-        GARTH_DRY_RUN=true
+      -q|--quiet)
+        quiet=true
         shift
         ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth stop <session>|--repo <dir>|--all [--yes]
+Usage: garth ps [-q]
+
+List all garth sessions with their status.
+
+Options:
+  -q, --quiet     Output only session IDs, one per line (no header).
+                  Useful for piping: garth ps -q | xargs garth stop
+
+Output columns:
+  ID              Short random session identifier (use with stop, down, containers)
+  SESSION         Full session name
+  REPO            Repository name
+  BRANCH          Git branch
+  WORKTREE        Worktree directory (- if none)
+  AGENTS          Comma-separated agent list
+  STATUS          running, running(?), detached, stopped, or degraded (reason)
+  UPTIME          Time since session was started
 HELP
         return 0
         ;;
-      -* )
+      *)
+        garth_die "Unknown option for ps: $1" 1
+        ;;
+    esac
+  done
+
+  ensure_state_root
+
+  local -a dirs=()
+  local dir
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    dirs+=("$dir")
+  done < <(garth_session_list_dirs)
+
+  if [[ ${#dirs[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  if [[ "$quiet" == "true" ]]; then
+    for dir in "${dirs[@]}"; do
+      garth_session_id_for_dir "$dir"
+    done
+    return 0
+  fi
+
+  printf '%-8s %-36s %-22s %-16s %-20s %-16s %-28s %-8s\n' \
+    "ID" "SESSION" "REPO" "BRANCH" "WORKTREE" "AGENTS" "STATUS" "UPTIME"
+
+  for dir in "${dirs[@]}"; do
+    local id session repo_root repo branch worktree worktree_short agents_csv status_line status now started uptime
+    id=$(garth_session_id_for_dir "$dir")
+    session=$(garth_session_name_for_dir "$dir")
+    repo_root=$(read_state_value "$dir" "repo_root")
+    repo=$(basename "$repo_root")
+    branch=$(read_state_value "$dir" "branch")
+    worktree=$(read_state_value "$dir" "worktree")
+    worktree_short="-"
+    [[ -n "$worktree" ]] && worktree_short=$(basename "$worktree")
+    agents_csv=$(read_state_value "$dir" "agents_csv")
+    status_line=$(garth_session_status_line "$dir")
+    status="${status_line#*$'\t'}"
+    now=$(garth_now_epoch)
+    started=$(read_state_value "$dir" "started_epoch")
+    if [[ ! "$started" =~ ^[0-9]+$ ]]; then
+      started="$now"
+    fi
+    uptime=$(human_uptime $((now - started)))
+    printf '%-8s %-36s %-22s %-16s %-20s %-16s %-28s %-8s\n' \
+      "$id" "$session" "$repo" "$branch" "$worktree_short" "$agents_csv" "$status" "$uptime"
+  done
+}
+
+cmd_containers() {
+  local id_prefix="${1:-}"
+  if [[ "$id_prefix" == "--help" || "$id_prefix" == "-h" ]]; then
+    cat << 'HELP'
+Usage: garth containers <id>
+
+List Docker container IDs for a session. Output is one container ID per line,
+suitable for piping into docker commands.
+
+Arguments:
+  <id>            Session ID or unambiguous prefix (from garth ps)
+
+Examples:
+  garth containers a1b2c3                     List container IDs
+  garth containers a1b | xargs docker logs    View logs for all containers
+  garth containers a1b | xargs docker stats   Monitor resource usage
+HELP
+    return 0
+  fi
+  [[ -n "$id_prefix" ]] || garth_die "containers requires <id>" 1
+  ensure_state_root
+  local session_dir session
+  session_dir=$(garth_find_session_dir_by_id_prefix "$id_prefix")
+  session=$(garth_session_name_for_dir "$session_dir")
+  garth_list_containers_for_session "$session"
+}
+
+cmd_stop() {
+  local id_prefix=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help|-h)
+        cat << 'HELP'
+Usage: garth stop <id>
+
+Stop a session's Zellij session and Docker containers. The worktree, branch,
+and session state are preserved so the session can be resumed later with
+'garth open' or removed entirely with 'garth down'.
+
+Arguments:
+  <id>            Session ID or unambiguous prefix (from garth ps)
+
+Examples:
+  garth stop a1b2c3                 Stop a specific session
+  garth ps -q | xargs garth stop   Stop all sessions
+HELP
+        return 0
+        ;;
+      -*)
         garth_die "Unknown option for stop: $1" 1
         ;;
       *)
-        if [[ -z "$target_session" ]]; then
-          target_session="$1"
+        if [[ -z "$id_prefix" ]]; then
+          id_prefix="$1"
+          shift
+        else
+          garth_die "Unexpected argument: $1" 1
+        fi
+        ;;
+    esac
+  done
+  [[ -n "$id_prefix" ]] || garth_die "stop requires <id>" 1
+  ensure_state_root
+  local session_dir session
+  session_dir=$(garth_find_session_dir_by_id_prefix "$id_prefix")
+  session=$(garth_session_name_for_dir "$session_dir")
+  garth_log_info "Stopping session: $session ($(garth_session_id_for_dir "$session_dir"))"
+  stop_session_by_dir "$session_dir"
+}
+
+worktree_has_uncommitted_changes() {
+  local worktree="$1"
+  [[ -d "$worktree" ]] || return 1
+  [[ -n "$(git -C "$worktree" status --porcelain 2>/dev/null || true)" ]]
+}
+
+worktree_has_unpushed_changes() {
+  local worktree="$1"
+  [[ -d "$worktree" ]] || return 1
+  if git -C "$worktree" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    [[ -n "$(git -C "$worktree" log --oneline '@{u}..' 2>/dev/null || true)" ]]
+  else
+    return 1
+  fi
+}
+
+cmd_down() {
+  local id_prefix=""
+  local yes=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -y|--yes)
+        yes=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth down <id> [-y]
+
+Remove a session and all its resources: Zellij session, Docker containers,
+session state directory, and managed worktree. Warns before deleting a
+worktree that has uncommitted or unpushed changes.
+
+Arguments:
+  <id>            Session ID or unambiguous prefix (from garth ps)
+
+Options:
+  -y, --yes       Skip confirmation prompt
+
+Examples:
+  garth down a1b2c3                 Remove a session (with confirmation)
+  garth down a1b2c3 -y              Remove without confirmation
+  garth ps -q | xargs -I{} garth down {} -y
+                                    Remove all sessions
+HELP
+        return 0
+        ;;
+      -*)
+        garth_die "Unknown option for down: $1" 1
+        ;;
+      *)
+        if [[ -z "$id_prefix" ]]; then
+          id_prefix="$1"
           shift
         else
           garth_die "Unexpected argument: $1" 1
@@ -1188,50 +2201,50 @@ HELP
     esac
   done
 
-  local modes=0
-  [[ -n "$target_session" ]] && modes=$((modes + 1))
-  [[ -n "$repo_dir" ]] && modes=$((modes + 1))
-  [[ "$stop_all" == "true" ]] && modes=$((modes + 1))
-  [[ "$modes" -eq 1 ]] || garth_die "Choose exactly one target: <session> or --repo or --all" 1
-
+  [[ -n "$id_prefix" ]] || garth_die "down requires <id>" 1
   ensure_state_root
+  local session_dir session worktree managed repo_root
+  session_dir=$(garth_find_session_dir_by_id_prefix "$id_prefix")
+  session=$(garth_session_name_for_dir "$session_dir")
+  worktree=$(read_state_value "$session_dir" "worktree")
+  managed=$(read_state_value "$session_dir" "worktree_managed")
+  repo_root=$(read_state_value "$session_dir" "repo_root")
+  local container_count
+  container_count=$(garth_list_containers_for_session "$session" | sed '/^$/d' | wc -l | tr -d ' ')
 
-  local -a targets=()
-  if [[ "$stop_all" == "true" ]]; then
-    if ! garth_ask_yn "Stop all garth sessions?"; then
+  garth_log_info "Delete plan for session $(garth_session_id_for_dir "$session_dir"):"
+  echo "  - session state: $session_dir"
+  echo "  - zellij session: $session"
+  echo "  - containers: $container_count"
+  if [[ "$managed" == "true" && -n "$worktree" ]]; then
+    echo "  - managed worktree: $worktree"
+  else
+    echo "  - managed worktree: none"
+  fi
+
+  if [[ "$yes" != "true" && "$managed" == "true" ]]; then
+    if worktree_has_uncommitted_changes "$worktree" || worktree_has_unpushed_changes "$worktree"; then
+      garth_log_warn "Worktree has uncommitted or unpushed changes: $worktree"
+    fi
+  fi
+
+  if [[ "$yes" != "true" ]]; then
+    if ! garth_ask_yn "Proceed with deletion?"; then
       garth_log_info "Aborted"
       return 0
     fi
-    local d
-    for d in "$GARTH_STATE_ROOT"/sessions/*; do
-      [[ -d "$d" ]] || continue
-      targets+=("$(basename "$d")")
-    done
-  elif [[ -n "$repo_dir" ]]; then
-    local repo_root
-    repo_root=$(garth_git_repo_root "$repo_dir") || garth_die "Not inside a git repo: $repo_dir" 1
-    local d
-    for d in "$GARTH_STATE_ROOT"/sessions/*; do
-      [[ -d "$d" ]] || continue
-      local sr
-      sr=$(read_state_value "$d" "repo_root")
-      if [[ "$sr" == "$repo_root" ]]; then
-        targets+=("$(basename "$d")")
-      fi
-    done
-  else
-    targets+=("$target_session")
   fi
 
-  if [[ ${#targets[@]} -eq 0 ]]; then
-    garth_die "No matching sessions found" 5
-  fi
+  garth_log_info "Deleting session: $session ($(garth_session_id_for_dir "$session_dir"))"
+  stop_session_by_dir "$session_dir"
 
-  local session
-  for session in "${targets[@]}"; do
-    garth_log_info "Stopping session: $session"
-    stop_session "$session"
-  done
+  if [[ "$managed" == "true" && -n "$worktree" && -d "$worktree" ]]; then
+    if [[ -n "$repo_root" ]] && git -C "$repo_root" worktree list --porcelain 2>/dev/null | grep -Fq "worktree $worktree"; then
+      git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$worktree"
+  fi
+  rm -rf "$session_dir"
 }
 
 garth_sed_escape_replacement() {
@@ -1245,17 +2258,6 @@ garth_set_config_string_value() {
   escaped=$(garth_sed_escape_replacement "$value")
   sed -i.bak "s|^${key} = \".*\"|${key} = \"${escaped}\"|" "$GARTH_CONFIG_PATH"
   rm -f "$GARTH_CONFIG_PATH.bak"
-}
-
-garth_prompt_with_default() {
-  local prompt="$1"
-  local default="$2"
-  local answer=""
-  read -r -p "$prompt [$default]: " answer
-  if [[ -z "$answer" ]]; then
-    answer="$default"
-  fi
-  printf '%s' "$answer"
 }
 
 garth_first_vault_name() {
@@ -1800,6 +2802,7 @@ Checks:
   - optional token mint test for a target repo (default: .)
   - default Docker image presence (claude/codex)
   - optional feature checks (packages and mounts)
+  - session-layer consistency (state, zellij, containers)
   - with --deep: runtime Docker auth/startup probes for passthrough agents
 HELP
         return 0
@@ -2188,6 +3191,120 @@ HELP
     fi
   fi
 
+  ensure_state_root
+  local -a doctor_session_dirs=()
+  local doctor_dir
+  while IFS= read -r doctor_dir; do
+    [[ -n "$doctor_dir" ]] || continue
+    doctor_session_dirs+=("$doctor_dir")
+  done < <(garth_session_list_dirs)
+
+  local known_session_names=$'\n'
+  for doctor_dir in "${doctor_session_dirs[@]}"; do
+    known_session_names+=$(garth_session_name_for_dir "$doctor_dir")
+    known_session_names+=$'\n'
+  done
+
+  local -a degraded_session_dirs=()
+  local -a stale_state_dirs=()
+  for doctor_dir in "${doctor_session_dirs[@]}"; do
+    local doctor_status_line doctor_status
+    doctor_status_line=$(garth_session_status_line "$doctor_dir")
+    doctor_status="${doctor_status_line#*$'\t'}"
+    if [[ "$doctor_status" == degraded* ]]; then
+      degraded_session_dirs+=("$doctor_dir")
+      garth_log_warn "Degraded session: $(garth_session_name_for_dir "$doctor_dir") ($(garth_session_id_for_dir "$doctor_dir")) - $doctor_status"
+      warnings=$((warnings + 1))
+    fi
+
+    local doctor_session_name doctor_active doctor_stopped doctor_containers_all doctor_zellij_state
+    doctor_session_name=$(garth_session_name_for_dir "$doctor_dir")
+    doctor_active="false"
+    [[ -f "$doctor_dir/active" ]] && doctor_active="true"
+    doctor_stopped="false"
+    [[ -f "$doctor_dir/stopped_epoch" ]] && doctor_stopped="true"
+    doctor_containers_all=$(count_session_containers_all "$doctor_session_name")
+    doctor_zellij_state=$(garth_zellij_session_state "$doctor_session_name")
+    if [[ "$doctor_active" != "true" && "$doctor_stopped" != "true" && "$doctor_zellij_state" == "missing" && "$doctor_containers_all" -eq 0 ]]; then
+      stale_state_dirs+=("$doctor_dir")
+      garth_log_warn "Stale session state directory: $doctor_dir"
+      warnings=$((warnings + 1))
+    fi
+  done
+
+  local -a orphan_zellij_sessions=()
+  if command -v zellij >/dev/null 2>&1; then
+    local zj
+    while IFS= read -r zj; do
+      [[ -n "$zj" ]] || continue
+      if [[ "$known_session_names" != *$'\n'"$zj"$'\n'* ]]; then
+        orphan_zellij_sessions+=("$zj")
+        garth_log_warn "Orphan zellij session (no state dir): $zj"
+        warnings=$((warnings + 1))
+      fi
+    done < <(garth_zellij_list_sessions)
+  fi
+
+  local -a orphan_container_ids=()
+  local -a orphan_container_sessions=()
+  if command -v docker >/dev/null 2>&1; then
+    local cid csess
+    while IFS= read -r cid; do
+      [[ -n "$cid" ]] || continue
+      csess=$(docker inspect -f '{{ index .Config.Labels "garth.session" }}' "$cid" 2>/dev/null || true)
+      [[ -n "$csess" ]] || continue
+      if [[ "$known_session_names" != *$'\n'"$csess"$'\n'* ]]; then
+        orphan_container_ids+=("$cid")
+        orphan_container_sessions+=("$csess")
+        garth_log_warn "Orphan container (no state dir): $cid (session=$csess)"
+        warnings=$((warnings + 1))
+      fi
+    done < <(docker ps -aq --filter label=garth.session)
+  fi
+
+  local can_prompt_cleanup=false
+  if garth_has_tty; then
+    can_prompt_cleanup=true
+  fi
+
+  if [[ "$can_prompt_cleanup" == "true" ]]; then
+    if [[ ${#degraded_session_dirs[@]} -gt 0 ]]; then
+      if garth_ask_yn "Stop degraded sessions now?"; then
+        for doctor_dir in "${degraded_session_dirs[@]}"; do
+          stop_session_by_dir "$doctor_dir"
+        done
+      fi
+    fi
+
+    if [[ ${#orphan_zellij_sessions[@]} -gt 0 ]]; then
+      if garth_ask_yn "Delete orphan zellij sessions now?"; then
+        local orphan_zj
+        for orphan_zj in "${orphan_zellij_sessions[@]}"; do
+          garth_zellij_kill_session "$orphan_zj"
+        done
+      fi
+    fi
+
+    if [[ ${#orphan_container_ids[@]} -gt 0 ]]; then
+      if garth_ask_yn "Remove orphan containers now?"; then
+        local orphan_cid
+        for orphan_cid in "${orphan_container_ids[@]}"; do
+          docker rm -f "$orphan_cid" >/dev/null 2>&1 || true
+        done
+      fi
+    fi
+
+    if [[ ${#stale_state_dirs[@]} -gt 0 ]]; then
+      if garth_ask_yn "Delete stale session state directories now?"; then
+        for doctor_dir in "${stale_state_dirs[@]}"; do
+          rm -rf "$doctor_dir"
+        done
+      fi
+    fi
+  elif [[ ${#degraded_session_dirs[@]} -gt 0 || ${#orphan_zellij_sessions[@]} -gt 0 || ${#orphan_container_ids[@]} -gt 0 || ${#stale_state_dirs[@]} -gt 0 ]]; then
+    garth_log_warn "Cleanup actions skipped (no interactive terminal)."
+  fi
+
   if ((failures > 0)); then
     garth_log_error "Doctor found ${failures} failing check(s) and ${warnings} warning(s)"
     return 1
@@ -2210,12 +3327,15 @@ main() {
   shift || true
 
   case "$command" in
-    boot) cmd_boot "$@" ;;
-    worktree) cmd_worktree "$@" ;;
+    new) cmd_new "$@" ;;
+    open) cmd_open "$@" ;;
+    up) cmd_up "$@" ;;
+    ps) cmd_ps "$@" ;;
+    containers) cmd_containers "$@" ;;
+    down) cmd_down "$@" ;;
     agent) cmd_agent "$@" ;;
     token) cmd_token "$@" ;;
     doctor) cmd_doctor "$@" ;;
-    status) cmd_status "$@" ;;
     stop) cmd_stop "$@" ;;
     setup) cmd_setup "$@" ;;
     internal-refresh) cmd_internal_refresh "$@" ;;

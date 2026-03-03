@@ -838,3 +838,11 @@ garth_stop_containers_for_session() {
 garth_list_garth_containers_json() {
   docker ps --filter label=garth.session --format '{{json .}}'
 }
+
+garth_list_containers_for_session() {
+  local session="$1"
+  if ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+  docker ps -aq --filter "label=garth.session=$session"
+}

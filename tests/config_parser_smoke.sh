@@ -8,6 +8,7 @@ GARTH_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_OUT=$("$GARTH_ROOT/lib/config-parser.py" env "$GARTH_ROOT/config.example.toml")
 
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_SAFETY_MODE='
+echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_DEFAULT_BRANCH='
 echo "$ENV_OUT" | grep -q '^GARTH_AGENT_CLAUDE_BASE_COMMAND='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_PROTECTED_PATHS_JSON='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_SECCOMP_PROFILE='
