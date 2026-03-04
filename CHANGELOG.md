@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - Unreleased
+## [0.2.1] - Unreleased
 
 ### Added
 
@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and `cmd_open` launch paths
 - Pre-existing ShellCheck warnings (SC2221, SC2259, SC2034, SC1090, SC2088)
 - `cli_open_smoke` test failure on CI due to missing config in XDG fallback path
+- Session ID lookup now prefers exact matches before prefix matches, preventing
+  false ambiguity for `garth stop`, `garth down`, and `garth containers`
 
 ### Changed
 
@@ -35,6 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
-[0.2.0]: https://github.com/ealt/garth/releases/tag/v0.2.0
+[0.2.1]: https://github.com/ealt/garth/releases/tag/v0.2.1
 [0.1.1]: https://github.com/ealt/garth/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ealt/garth/releases/tag/v0.1.0
