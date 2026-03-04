@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.2.1] - Unreleased
+## [0.2.0] - Unreleased
 
 ### Added
 
@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   updates and schedule override via `GARTH_IMAGE_REFRESH_CRON_SCHEDULE`
 - `garth refresh-images` command (alias: `garth refresh`) to force Docker image
   rebuilds with `--pull --no-cache` for configured or selected agents
+- New smoke test coverage for Docker refresh command behavior
+  (`tests/refresh_images_smoke.sh`)
 - `features.packages` support for `bun` via upstream installer script, including
   image validation checks for the `bun` binary
 - `garth open <id>` support to resume sessions directly by ID/prefix
@@ -33,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CI now runs `make check` as single source of truth (no duplicated steps)
 - `garth open` positional syntax now treats the first argument as session ID;
   directory-based branch open is now explicit via `-d/--dir`
+- Documentation now includes Docker refresh command usage and troubleshooting
+  guidance
 
 ## [0.1.0] - 2026-03-04
 
@@ -44,6 +48,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
-[0.2.1]: https://github.com/ealt/garth/releases/tag/v0.2.1
+[0.2.0]: https://github.com/ealt/garth/releases/tag/v0.2.0
 [0.1.1]: https://github.com/ealt/garth/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ealt/garth/releases/tag/v0.1.0
