@@ -102,11 +102,22 @@ garth_find_sessions_for_branch() {
 garth_find_sessions_by_id_prefix() {
   local prefix="$1"
   local dir id
+  local -a exact_matches=()
+  local -a prefix_matches=()
   while IFS= read -r dir; do
     [[ -n "$dir" ]] || continue
     id=$(garth_session_id_for_dir "$dir")
     if [[ "$id" == "$prefix"* ]]; then
-      echo "$dir"
+      prefix_matches+=("$dir")
+      if [[ "$id" == "$prefix" ]]; then
+        exact_matches+=("$dir")
+      fi
     fi
   done < <(garth_session_list_dirs)
+
+  if [[ ${#exact_matches[@]} -gt 0 ]]; then
+    printf '%s\n' "${exact_matches[@]}"
+  else
+    printf '%s\n' "${prefix_matches[@]}"
+  fi
 }

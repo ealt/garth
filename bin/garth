@@ -2533,6 +2533,7 @@ garth_write_image_refresh_script() {
   local script_path="$1"
   local image_prefix="$2"
   local agents_csv="$3"
+  local features_packages_csv="$4"
 
   local script_dir
   script_dir=$(dirname "$script_path")
@@ -2557,6 +2558,7 @@ garth_write_image_refresh_script() {
     echo "set -euo pipefail"
     printf 'DOCKER_DIR=%q\n' "$GARTH_ROOT/docker"
     printf 'IMAGE_PREFIX=%q\n' "$image_prefix"
+    printf 'FEATURE_PACKAGES_CSV=%q\n' "$features_packages_csv"
     echo "if ! command -v docker >/dev/null 2>&1; then"
     echo "  echo \"docker not found; skipping Garth image refresh\" >&2"
     echo "  exit 0"
@@ -2567,7 +2569,7 @@ garth_write_image_refresh_script() {
     done
     echo ")"
     echo "for agent in \"\${agents[@]}\"; do"
-    echo "  docker build --pull --no-cache --target \"\$agent\" -t \"\${IMAGE_PREFIX}-\${agent}:latest\" \"\$DOCKER_DIR\""
+    echo "  docker build --pull --no-cache --build-arg \"GARTH_FEATURE_PACKAGES=\${FEATURE_PACKAGES_CSV}\" --target \"\$agent\" -t \"\${IMAGE_PREFIX}-\${agent}:latest\" \"\$DOCKER_DIR\""
     echo "done"
   } > "$script_path"
   chmod 700 "$script_path"
@@ -2576,6 +2578,7 @@ garth_write_image_refresh_script() {
 garth_setup_image_refresh_cron() {
   local image_prefix="$1"
   local agents_csv="$2"
+  local features_packages_csv="$3"
 
   if ! command -v crontab >/dev/null 2>&1; then
     garth_log_warn "Skipping cron setup: 'crontab' command not found"
@@ -2596,7 +2599,7 @@ garth_setup_image_refresh_cron() {
   repo_key=$(echo "$GARTH_ROOT" | sed -E 's/[^A-Za-z0-9._-]+/_/g')
   local marker="# garth-image-refresh:${repo_key}"
 
-  garth_write_image_refresh_script "$script_path" "$image_prefix" "$agents_csv"
+  garth_write_image_refresh_script "$script_path" "$image_prefix" "$agents_csv" "$features_packages_csv"
 
   local existing
   existing=$(crontab -l 2>/dev/null || true)
@@ -2754,7 +2757,9 @@ cmd_setup() {
         done
       fi
 
-      garth_setup_image_refresh_cron "$image_prefix" "$GARTH_DEFAULTS_AGENTS_CSV"
+      local features_packages_csv
+      features_packages_csv="$(garth_features_packages_csv)"
+      garth_setup_image_refresh_cron "$image_prefix" "$GARTH_DEFAULTS_AGENTS_CSV" "$features_packages_csv"
     fi
   fi
 
