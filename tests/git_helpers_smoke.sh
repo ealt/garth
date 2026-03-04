@@ -31,5 +31,6 @@ git -C "$TMP_REPO" branch feature/auth
 mkdir -p "$TMP_REPO/wt"
 git -C "$TMP_REPO" worktree add "$TMP_REPO/wt/feature__auth" feature/auth >/dev/null
 [[ "$(garth_git_find_worktree_for_branch "$TMP_REPO" "feature/auth")" == "$TMP_REPO/wt/feature__auth" ]]
+[[ "$(garth_git_repo_name "$TMP_REPO/wt/feature__auth")" == "$(basename "$TMP_REPO")" ]]
 
 echo "git_helpers_smoke: ok"

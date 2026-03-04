@@ -17,6 +17,20 @@ garth_git_current_branch() {
 
 garth_git_repo_name() {
   local repo_root="$1"
+  local common_git_dir=""
+  common_git_dir=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  if [[ -z "$common_git_dir" ]]; then
+    common_git_dir=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null || true)
+    if [[ -n "$common_git_dir" ]]; then
+      common_git_dir=$(garth_abs_path "$repo_root/$common_git_dir")
+    fi
+  fi
+
+  if [[ -n "$common_git_dir" ]]; then
+    basename "$(dirname "$common_git_dir")"
+    return 0
+  fi
+
   basename "$repo_root"
 }
 

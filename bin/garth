@@ -2121,11 +2121,16 @@ HELP
     "ID" "SESSION" "REPO" "BRANCH" "WORKTREE" "AGENTS" "STATUS" "UPTIME"
 
   for dir in "${dirs[@]}"; do
-    local id session repo_root repo branch worktree worktree_short agents_csv status_line status now started uptime
+    local id session repo_root owner_repo repo branch worktree worktree_short agents_csv status_line status now started uptime
     id=$(garth_session_id_for_dir "$dir")
     session=$(garth_session_name_for_dir "$dir")
     repo_root=$(read_state_value "$dir" "repo_root")
-    repo=$(basename "$repo_root")
+    owner_repo=$(read_state_value "$dir" "owner_repo")
+    if [[ -n "$owner_repo" && "$owner_repo" == */* ]]; then
+      repo="${owner_repo##*/}"
+    else
+      repo=$(garth_git_repo_name "$repo_root")
+    fi
     branch=$(read_state_value "$dir" "branch")
     worktree=$(read_state_value "$dir" "worktree")
     worktree_short="-"
