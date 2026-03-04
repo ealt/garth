@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.1.1] - Unreleased
+## [0.2.0] - Unreleased
+
+### Added
+
+- Setup-managed cron image refresh job (weekly by default) with idempotent
+  updates and schedule override via `GARTH_IMAGE_REFRESH_CRON_SCHEDULE`
+- `features.packages` support for `bun` via upstream installer script, including
+  image validation checks for the `bun` binary
 
 ### Fixed
 
@@ -28,5 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[0.2.0]: https://github.com/ealt/garth/releases/tag/v0.2.0
 [0.1.1]: https://github.com/ealt/garth/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ealt/garth/releases/tag/v0.1.0
