@@ -38,10 +38,13 @@ The goal is to redesign the CLI surface so that:
 Equivalent to:
 `garth up <dir> --new-branch <name> [--base <ref>] --auto-worktree --auto-session`
 
-### `garth open <dir> [<branch>]`
+### `garth open <id> [options]` / `garth open -d <dir> [<branch>]`
 
 "I want to look at / work on something existing."
 
+- `garth open <id>` resumes a specific session by ID or unambiguous prefix
+  (same prefix semantics as `stop`/`down`/`containers`)
+- `garth open -d <dir> [<branch>]` opens by repository + branch
 - `<branch>` must already exist locally or on the remote; error with "did you
   mean?" suggestions if not found
 - If the branch exists only on the remote, Garth fetches and creates a local
@@ -54,13 +57,13 @@ Equivalent to:
 - Creates worktree/container/session as needed for anything that doesn't exist
 - No prompts, no wizard
 
-Session lookup for reattachment is by repo + branch (not by session ID or name).
-The session state files store both `repo_root` and `branch`, so Garth queries:
-"find sessions where repo matches and branch matches." This is how idempotent
-reattach works despite session IDs being random.
+Session lookup for branch-based reattachment (`open -d`) is by repo + branch,
+not by session ID or name. The session state files store both `repo_root` and
+`branch`, so Garth queries: "find sessions where repo matches and branch
+matches." Session IDs are used for direct targeting with `garth open <id>`.
 
 Equivalent to:
-`garth up <dir> --branch <branch> --auto-worktree --auto-session`
+`garth up <dir> --branch <branch> --auto-worktree --auto-session` (for `-d` mode)
 
 ### `garth up <dir> [flags]`
 
@@ -130,9 +133,9 @@ If no TTY is detected and the wizard would need to prompt, error with:
 #### Explicit flags
 
 **Selecting specific values (accept only literal identifiers):**
-- `--branch <name>` — use this existing branch
-- `--worktree <path>` — use this specific worktree path
-- `--session <name>` — use this specific session
+- `-b, --branch <name>` — use this existing branch
+- `-w, --worktree <path>` — use this specific worktree path
+- `-s, --session <name>` — use this specific session
 
 **Creating new resources:**
 - `--new-branch <name>` — create a new branch (must not exist)
@@ -249,16 +252,17 @@ Resolution order:
 - Random short hashes generated at session creation
 - Stored in session state directory
 - Support prefix matching for all commands that accept IDs (`stop`, `down`,
-  `containers`, etc.)
+  `containers`, `open`, etc.)
 - Ambiguous prefixes always error — never guess
 
 ## Session Lookup for Reattachment
 
-`garth open` and the wizard's "resume session" option need to find existing
+`garth open -d` and the wizard's "resume session" option need to find existing
 sessions for a given repo + branch. This is done by scanning session state
-directories and matching on `repo_root` + `branch` fields. Session IDs and
-session names are for human reference and CLI targeting — they are not the
-lookup key for reattachment.
+directories and matching on `repo_root` + `branch` fields.
+
+`garth open <id>` is separate: it resolves the target session directly via ID
+prefix matching, then reattaches/resumes that exact session.
 
 **Multiple sessions for the same repo+branch** (possible via `--new-session` or
 if a previous session was stopped but not downed):
@@ -318,10 +322,11 @@ one status based on real-state inspection, with degraded always surfaced.
 - `garth new <dir> test-feature` creates branch + worktree + container + session
 - `garth new <dir> test-feature` again errors with "branch already exists"
 - `garth new <dir> test-feature --base nonexistent` errors with branch list
-- `garth open <dir> test-feature` reattaches to the session created above
-- `garth open <dir>` with no branch opens the default branch
-- `garth open <dir> nonexistent` errors with suggestions
-- `garth open <dir> remote-only-branch` fetches and creates tracking branch
+- `garth open <id>` reattaches/resumes a session directly by ID
+- `garth open -d <dir> test-feature` reattaches to the session created above
+- `garth open -d <dir>` with no branch opens the default branch
+- `garth open -d <dir> nonexistent` errors with suggestions
+- `garth open -d <dir> remote-only-branch` fetches and creates tracking branch
 - `garth up <dir>` with no flags launches the interactive wizard
 - `garth up <dir> --auto` uses defaults without prompting
 - `garth up <dir> --branch test-feature` skips step 1, prompts for steps 2-3

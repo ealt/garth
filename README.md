@@ -12,7 +12,8 @@ repos with multiple agents in parallel, each in its own isolated workspace.
 ```bash
 garth new . feature/auth           # branch + worktree + containers + session
 garth new ../other-repo fix/bug    # same thing, different repo
-garth open . feature/auth          # reattach where you left off
+garth open -d . feature/auth       # open an existing branch
+garth open a1b2c3                  # resume a session by ID
 garth ps                           # see everything running
 ```
 
@@ -79,7 +80,7 @@ git clone https://github.com/ealt/garth.git && cd garth
 
 ```bash
 garth new . feature/my-feature     # new branch + worktree + session
-garth open .                       # open default branch
+garth open -d .                    # open default branch
 garth up .                         # interactive launcher
 ```
 
@@ -273,8 +274,9 @@ derived from the branch name.
 ### Open an existing branch
 
 ```bash
-garth open .                                # open the repo's default branch
-garth open . feature/auth                   # open an existing feature branch
+garth open -d .                             # open the repo's default branch
+garth open -d . feature/auth                # open an existing feature branch
+garth open a1b2c3                           # resume an existing session by ID
 ```
 
 Reuses existing worktrees and sessions when available. If a live session exists

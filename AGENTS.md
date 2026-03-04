@@ -24,8 +24,9 @@ development workflow. See also:
 
 - `garth new . feature/branch` — create branch + worktree + session
 - `garth new . feature/branch --base origin/main` — with explicit base ref
-- `garth open .` — open default branch (reuse session if exists)
-- `garth open . feature/branch` — open existing branch
+- `garth open <id>` — resume a session by ID
+- `garth open -d .` — open default branch (reuse session if exists)
+- `garth open -d . feature/branch` — open existing branch
 - `garth up .` — interactive wizard
 - `garth up . --auto` — non-interactive with wizard defaults
 

@@ -49,20 +49,22 @@ Examples:
 ### `garth open --help` (line ~983)
 
 ```
-Usage: garth open <dir> [<branch>] [options]
+Usage: garth open <id> [options]
+       garth open -d <dir> [<branch>] [options]
 
-Open an existing branch, reusing its session and worktree if they exist.
-If a live session exists for the branch, reattaches to it.
+Resume a session by ID, or open a branch from a git repository.
 
 Arguments:
-  <dir>                 Path to the git repository
-  <branch>              Branch to open (default: repo default branch)
+  <id>                  Session ID or prefix (from garth ps)
 
 Options:
+  -d, --dir <dir>       Path to the git repository (use instead of <id>
+                        to open by directory and branch)
+  -b, --branch <name>   Branch to open (same as positional <branch>)
   --remote <name>       Remote to fetch from when branch is remote-only
                         (default: origin)
-  --worktree <path>     Use a specific worktree path
-  --session <name>      Reattach to a specific session by name
+  -w, --worktree <path> Use a specific worktree path
+  -s, --session <name>  Reattach to a specific session by name
   --new-worktree        Force creation of a new worktree
   --new-session         Force creation of a new session
   --no-worktree         Open branch in-place (fails if working tree is dirty)
@@ -79,9 +81,11 @@ Options:
   --yes, -y             Auto-confirm prompts
 
 Examples:
-  garth open .                      Open the repo's default branch
-  garth open . feature/auth         Open an existing feature branch
-  garth open . pr-branch --remote upstream
+  garth open a1b2c3                 Resume session by ID
+  garth open -d .                   Open the repo's default branch
+  garth open -d . -b feature/auth   Open an existing feature branch
+  garth open -d . feature/auth      Open an existing feature branch
+  garth open -d . pr-branch --remote upstream
                                     Open a branch from a non-origin remote
 ```
 
@@ -98,20 +102,20 @@ Arguments:
   <dir>                 Path to the git repository
 
 Branch selection (wizard step 1):
-  --branch <name>       Use an existing branch (skips step 1)
+  -b, --branch <name>   Use an existing branch (skips step 1)
   --new-branch <name>   Create a new branch (skips step 1, implies new worktree)
   --base <ref>          Base ref for --new-branch (default: repo default branch)
   --remote <name>       Remote for fetching remote-only branches (default: origin)
   --auto-branch         Use wizard default: currently checked-out branch
 
 Worktree selection (wizard step 2):
-  --worktree <path>     Use a specific worktree path (skips step 2)
+  -w, --worktree <path> Use a specific worktree path (skips step 2)
   --new-worktree        Force creation of a new worktree (skips step 2)
   --no-worktree         No worktree, boot in-place (skips step 2)
   --auto-worktree       Use wizard default: reuse if exists, create if not
 
 Session selection (wizard step 3):
-  --session <name>      Reattach to a specific session by name (skips step 3)
+  -s, --session <name>  Reattach to a specific session by name (skips step 3)
   --new-session         Force creation of a new session (skips step 3)
   --auto-session        Use wizard default: resume if exists, create if not
 
@@ -229,7 +233,8 @@ Replace "Boot a workspace" / "Create and boot a worktree" / "Session control"
 with the new command structure. Organize as:
 
 - **Start a new feature**: `garth new . feature/auth`
-- **Open an existing branch**: `garth open .` / `garth open . feature/auth`
+- **Open an existing branch**: `garth open -d .` / `garth open -d . feature/auth`
+- **Resume a session by ID**: `garth open <id>`
 - **Interactive launcher**: `garth up .`
 - **List sessions**: `garth ps`
 - **Stop / remove sessions**: `garth stop <id>` / `garth down <id>`
@@ -251,8 +256,9 @@ Replace Running subsection:
 
 - `garth new . feature/branch` — create branch + worktree + session
 - `garth new . feature/branch --base origin/main` — with explicit base
-- `garth open .` — open default branch
-- `garth open . feature/branch` — open existing branch
+- `garth open <id>` — resume a session by ID
+- `garth open -d .` — open default branch
+- `garth open -d . feature/branch` — open existing branch
 - `garth up .` — interactive wizard
 - `garth up . --auto` — non-interactive defaults
 - `garth ps` — list sessions
@@ -323,7 +329,7 @@ with:
 ```bash
 garth up .                                 # interactive launcher
 garth new . feature/my-feature             # new branch + worktree + session
-garth open .                               # open default branch
+garth open -d .                            # open default branch
 garth ps                                   # list sessions
 ```
 

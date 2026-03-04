@@ -17,7 +17,8 @@ conventions, coding style, and testing guidelines live in
 ./setup.sh --yes                           # bootstrap
 garth up .                                 # interactive launcher
 garth new . feature/my-feature             # new branch + worktree + session
-garth open .                               # open default branch
+garth open -d .                            # open default branch
+garth open a1b2c3                          # resume by session ID
 garth ps                                   # list sessions
 garth doctor --repo .                      # validate prerequisites
 bash tests/config_parser_smoke.sh          # run config tests

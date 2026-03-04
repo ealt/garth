@@ -46,7 +46,7 @@ Usage: garth <command> [options]
 
 Workspace lifecycle:
   new <dir> <name>        Create a new branch, worktree, and session
-  open <dir> [branch]     Open an existing branch, reusing session/worktree
+  open <id>               Resume a session by ID (or use -d/--dir for branch)
   up <dir> [flags]        Interactive wizard (or explicit flags) to launch
 
 Session management:
@@ -935,7 +935,7 @@ HELP
   repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
 
   if garth_branch_exists_local "$repo_root" "$branch" || git -C "$repo_root" for-each-ref --format='%(refname)' "refs/remotes/*/$branch" | grep -q .; then
-    garth_die "Branch already exists: $branch (use 'garth open $dir $branch')" 1
+    garth_die "Branch already exists: $branch (use 'garth open -d $dir $branch')" 1
   fi
 
   base_ref="${base_ref:-$(garth_git_default_branch "$repo_root")}"
@@ -976,6 +976,7 @@ HELP
 
 cmd_open() {
   local dir=""
+  local id_prefix=""
   local branch=""
   local remote_name=""
   local no_worktree=false
@@ -987,6 +988,15 @@ cmd_open() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      -d|--dir)
+        [[ -z "$id_prefix" ]] || garth_die "Cannot use <id> with --dir. Use either 'garth open <id>' or 'garth open -d <dir> [branch]'." 1
+        dir="$2"
+        shift 2
+        ;;
+      -b|--branch)
+        branch="$2"
+        shift 2
+        ;;
       --remote)
         remote_name="$2"
         shift 2
@@ -1003,11 +1013,11 @@ cmd_open() {
         new_session=true
         shift
         ;;
-      --worktree)
+      -w|--worktree)
         worktree_path="$2"
         shift 2
         ;;
-      --session)
+      -s|--session)
         session_name_override="$2"
         shift 2
         ;;
@@ -1022,21 +1032,22 @@ cmd_open() {
         ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth open <dir> [<branch>] [options]
+Usage: garth open <id> [options]
+       garth open -d <dir> [<branch>] [options]
 
-Open an existing branch, reusing its session and worktree if they exist.
-If a live session exists for the branch, reattaches to it. If the branch
-exists only on the remote, fetches and creates a local tracking branch.
+Resume a session by ID, or open a branch from a git repository.
 
 Arguments:
-  <dir>                   Path to the git repository
-  <branch>                Branch to open (default: repo default branch)
+  <id>                    Session ID or prefix (from garth ps)
 
 Options:
+  -d, --dir <dir>         Path to the git repository (use instead of <id>
+                          to open by directory and branch)
+  -b, --branch <name>     Branch to open (same as positional <branch>)
   --remote <name>         Remote to fetch from when branch is remote-only
                           (default: origin)
-  --worktree <path>       Use a specific worktree path
-  --session <name>        Reattach to a specific session by name
+  -w, --worktree <path>   Use a specific worktree path
+  -s, --session <name>    Reattach to a specific session by name
   --new-worktree          Force creation of a new worktree
   --new-session           Force creation of a new session
   --no-worktree           Open branch in-place (fails if working tree is dirty)
@@ -1053,9 +1064,11 @@ Options:
   --yes, -y               Auto-confirm prompts
 
 Examples:
-  garth open .                      Open the repo's default branch
-  garth open . feature/auth         Open an existing feature branch
-  garth open . pr-branch --remote upstream
+  garth open a1b2c3                 Resume session by ID
+  garth open -d .                   Open the repo's default branch
+  garth open -d . -b feature/auth   Open an existing feature branch
+  garth open -d . feature/auth      Open an existing feature branch
+  garth open -d . pr-branch --remote upstream
                                     Open a branch from a non-origin remote
 HELP
         return 0
@@ -1064,10 +1077,14 @@ HELP
         garth_die "Unknown option for open: $1" 1
         ;;
       *)
-        if [[ -z "$dir" ]]; then
-          dir="$1"
-        elif [[ -z "$branch" ]]; then
-          branch="$1"
+        if [[ -n "$dir" ]]; then
+          if [[ -z "$branch" ]]; then
+            branch="$1"
+          else
+            garth_die "Unexpected argument: $1" 1
+          fi
+        elif [[ -z "$id_prefix" ]]; then
+          id_prefix="$1"
         else
           garth_die "Unexpected argument: $1" 1
         fi
@@ -1076,13 +1093,59 @@ HELP
     esac
   done
 
-  [[ -n "$dir" ]] || garth_die "open requires <dir>" 1
   if [[ "$new_session" == "true" && -n "$session_name_override" ]]; then
     garth_die "Conflicting flags: --session and --new-session" 1
   fi
 
   load_config
   ensure_state_root
+
+  if [[ -n "$id_prefix" ]]; then
+    if [[ -n "$branch" || -n "$remote_name" || "$no_worktree" == "true" || "$new_worktree" == "true" || -n "$worktree_path" || -n "$session_name_override" || "$new_session" == "true" ]]; then
+      garth_die "Flags --branch, --remote, --no-worktree, --new-worktree, --worktree, --session, and --new-session require --dir." 1
+    fi
+
+    local selected_session_dir repo_root target_dir worktree_managed session session_id stored_branch
+    selected_session_dir=$(garth_find_session_dir_by_id_prefix "$id_prefix")
+    repo_root=$(read_state_value "$selected_session_dir" "repo_root")
+    stored_branch=$(read_state_value "$selected_session_dir" "branch")
+    target_dir=$(read_state_value "$selected_session_dir" "worktree")
+    worktree_managed=$(read_state_value "$selected_session_dir" "worktree_managed")
+    [[ -n "$worktree_managed" ]] || worktree_managed="false"
+
+    [[ -n "$repo_root" ]] || garth_die "Session state is missing repo_root for ID $(garth_session_id_for_dir "$selected_session_dir")" 1
+    [[ -n "$stored_branch" ]] || garth_die "Session state is missing branch for ID $(garth_session_id_for_dir "$selected_session_dir")" 1
+    [[ -d "$repo_root" ]] || garth_die "Session repo no longer exists on disk: $repo_root" 1
+
+    if [[ -n "$selected_session_dir" ]] && garth_attach_if_running "$selected_session_dir"; then
+      return 0
+    fi
+
+    [[ -n "$target_dir" ]] || target_dir="$repo_root"
+    [[ -d "$target_dir" ]] || garth_die "Session worktree no longer exists on disk: $target_dir" 1
+    session=$(garth_session_name_for_dir "$selected_session_dir")
+    session_id=$(garth_session_id_for_dir "$selected_session_dir")
+
+    local worktree_state
+    if [[ "$worktree_managed" == "true" ]]; then
+      worktree_state="reused"
+    elif [[ "$target_dir" == "$repo_root" ]]; then
+      worktree_state="none"
+    else
+      worktree_state="reused"
+    fi
+
+    garth_launch_workspace "$target_dir" \
+      --session-name "$session" \
+      --session-id "$session_id" \
+      --worktree-managed "$worktree_managed" \
+      --worktree-state "$worktree_state" \
+      --session-state resumed \
+      ${forward[@]+"${forward[@]}"}
+    return 0
+  fi
+
+  [[ -n "$dir" ]] || garth_die "open requires <id> or --dir <dir>" 1
 
   local abs_dir repo_root repo_name target_branch
   abs_dir=$(garth_abs_path "$dir")
@@ -1187,7 +1250,7 @@ cmd_up() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --branch)
+      -b|--branch)
         branch="$2"
         shift 2
         ;;
@@ -1203,11 +1266,11 @@ cmd_up() {
         remote_name="$2"
         shift 2
         ;;
-      --worktree)
+      -w|--worktree)
         worktree_path="$2"
         shift 2
         ;;
-      --session)
+      -s|--session)
         session_name="$2"
         shift 2
         ;;
@@ -1260,20 +1323,20 @@ Arguments:
   <dir>                   Path to the git repository
 
 Branch selection (wizard step 1):
-  --branch <name>         Use an existing branch (skips step 1)
+  -b, --branch <name>     Use an existing branch (skips step 1)
   --new-branch <name>     Create a new branch (skips step 1)
   --base <ref>            Base ref for --new-branch (default: repo default branch)
   --remote <name>         Remote for remote-only branches (default: origin)
   --auto-branch           Use wizard default: currently checked-out branch
 
 Worktree selection (wizard step 2):
-  --worktree <path>       Use a specific worktree path (skips step 2)
+  -w, --worktree <path>   Use a specific worktree path (skips step 2)
   --new-worktree          Force creation of a new worktree (skips step 2)
   --no-worktree           No worktree, boot in-place (skips step 2)
   --auto-worktree         Reuse if exists, create if not (skips step 2)
 
 Session selection (wizard step 3):
-  --session <name>        Reattach to a specific session (skips step 3)
+  -s, --session <name>    Reattach to a specific session (skips step 3)
   --new-session           Force creation of a new session (skips step 3)
   --auto-session          Resume if exists, create if not (skips step 3)
 
@@ -1520,7 +1583,7 @@ HELP
     fi
   fi
 
-  local -a open_args=("$dir")
+  local -a open_args=(--dir "$dir")
   [[ -n "$resolved_branch" ]] && open_args+=("$resolved_branch")
   [[ -n "$remote_name" ]] && open_args+=(--remote "$remote_name")
   [[ -n "$worktree_path" ]] && open_args+=(--worktree "$worktree_path")
