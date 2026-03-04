@@ -48,4 +48,12 @@ set -e
 [[ $DIRTY_RC -ne 0 ]]
 echo "$DIRTY_OUT" | grep -q "Cannot switch branches in-place with uncommitted changes"
 
+# Regression: cmd_up with no forwarded flags must not crash on empty forward array (set -u).
+git -C "$REPO" checkout -b topic2 >/dev/null 2>&1
+echo "t2" > "$REPO/topic2.txt"
+git -C "$REPO" add topic2.txt
+git -C "$REPO" commit -m "topic2" >/dev/null
+GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true \
+  "$GARTH_ROOT/bin/garth" up "$REPO" --branch topic2 --auto --dry-run >/dev/null
+
 echo "cli_open_smoke: ok"

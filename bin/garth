@@ -958,7 +958,7 @@ HELP
       --worktree-managed false \
       --worktree-state none \
       --session-state new \
-      "${forward[@]}"
+      ${forward[@]+"${forward[@]}"}
     return 0
   fi
 
@@ -971,7 +971,7 @@ HELP
     --worktree-managed true \
     --worktree-state created \
     --session-state new \
-    "${forward[@]}"
+    ${forward[@]+"${forward[@]}"}
 }
 
 cmd_open() {
@@ -1165,7 +1165,7 @@ HELP
     --worktree-managed "$worktree_managed" \
     --worktree-state "$worktree_state" \
     --session-state "$session_state" \
-    "${forward[@]}"
+    ${forward[@]+"${forward[@]}"}
 }
 
 cmd_up() {
@@ -1332,7 +1332,7 @@ HELP
     local -a args=("$dir" "$new_branch")
     [[ -n "$base_ref" ]] && args+=(--base "$base_ref")
     [[ "$no_worktree" == "true" ]] && args+=(--no-worktree)
-    args+=("${forward[@]}")
+    args+=(${forward[@]+"${forward[@]}"})
     cmd_new "${args[@]}"
     return 0
   fi
@@ -1440,7 +1440,7 @@ HELP
     local -a args=("$dir" "$new_branch")
     [[ -n "$base_ref" ]] && args+=(--base "$base_ref")
     [[ "$no_worktree" == "true" ]] && args+=(--no-worktree)
-    args+=("${forward[@]}")
+    args+=(${forward[@]+"${forward[@]}"})
     cmd_new "${args[@]}"
     return 0
   fi
@@ -1528,7 +1528,7 @@ HELP
   [[ "$new_worktree" == "true" ]] && open_args+=(--new-worktree)
   [[ "$new_session" == "true" ]] && open_args+=(--new-session)
   [[ "$no_worktree" == "true" ]] && open_args+=(--no-worktree)
-  open_args+=("${forward[@]}")
+  open_args+=(${forward[@]+"${forward[@]}"})
   cmd_open "${open_args[@]}"
 }
 
