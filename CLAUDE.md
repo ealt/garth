@@ -20,12 +20,14 @@ garth new . feature/my-feature             # new branch + worktree + session
 garth open -d .                            # open default branch
 garth open a1b2c3                          # resume by session ID
 garth ps                                   # list sessions
+garth refresh-images --agents claude       # rebuild one Docker image
 garth doctor --repo .                      # validate prerequisites
 bash tests/config_parser_smoke.sh          # run config tests
 bash tests/git_helpers_smoke.sh            # run git tests
 bash tests/zellij_layout_smoke.sh          # run layout tests
 bash tests/session_helpers_smoke.sh        # run session tests
 bash tests/cli_open_smoke.sh              # run CLI open tests
+bash tests/refresh_images_smoke.sh         # run Docker refresh CLI test
 bash -n bin/garth lib/*.sh                 # shell syntax check
 python3 -m py_compile lib/config-parser.py # Python syntax check
 ```

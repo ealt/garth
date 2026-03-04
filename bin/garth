@@ -57,6 +57,7 @@ Session management:
 
 Other:
   agent <dir> <name>      Run a single agent in docker or host mode
+  refresh-images          Rebuild Docker images with pull + no-cache
   token <dir>             Mint a GitHub App installation token
   doctor [--repo <dir>] [--deep] [--skip-token]
                           Diagnose local setup and auth health
@@ -2701,6 +2702,82 @@ garth_setup_image_refresh_cron() {
   fi
 }
 
+cmd_refresh_images() {
+  local agents_csv=""
+  local image_prefix=""
+  local dry_run=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --agents)
+        agents_csv="$2"
+        shift 2
+        ;;
+      --image-prefix)
+        image_prefix="$2"
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth refresh-images [options]
+
+Rebuild Docker images for one or more agents using --pull --no-cache.
+
+Options:
+  --agents <a,b>          Comma-separated agents (default: defaults.agents)
+  --image-prefix <prefix> Docker image prefix (default: defaults.docker_image_prefix)
+  --dry-run               Print build commands without executing
+
+Examples:
+  garth refresh-images
+  garth refresh-images --agents claude,codex
+  garth refresh-images --agents codex --image-prefix garth-dev
+HELP
+        return 0
+        ;;
+      *)
+        garth_die "Unknown option for refresh-images: $1" 1
+        ;;
+    esac
+  done
+
+  load_config
+  resolve_agents "$agents_csv"
+
+  image_prefix="${image_prefix:-$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX}"
+  if [[ "$dry_run" == "true" ]]; then
+    GARTH_DRY_RUN=true
+  else
+    garth_require_cmd docker
+  fi
+
+  local refreshed=0
+  local failed=0
+  local agent
+  for agent in "${GARTH_SELECTED_AGENTS[@]}"; do
+    agent="${agent// /}"
+    [[ -n "$agent" ]] || continue
+    garth_log_info "Refreshing Docker image: ${image_prefix}-${agent}:latest"
+    if garth_docker_refresh_agent_image "$agent" "$image_prefix"; then
+      garth_log_success "Refreshed Docker image: ${image_prefix}-${agent}:latest"
+      refreshed=$((refreshed + 1))
+    else
+      garth_log_error "Failed to refresh Docker image: ${image_prefix}-${agent}:latest"
+      failed=$((failed + 1))
+    fi
+  done
+
+  if ((failed > 0)); then
+    garth_die "Docker image refresh failed for ${failed} agent(s)" 1
+  fi
+
+  garth_log_success "Refreshed ${refreshed} Docker image(s)"
+}
+
 cmd_setup() {
   local non_interactive=false
   while [[ $# -gt 0 ]]; do
@@ -3533,6 +3610,7 @@ main() {
     containers) cmd_containers "$@" ;;
     down) cmd_down "$@" ;;
     agent) cmd_agent "$@" ;;
+    refresh-images|refresh) cmd_refresh_images "$@" ;;
     token) cmd_token "$@" ;;
     doctor) cmd_doctor "$@" ;;
     stop) cmd_stop "$@" ;;

@@ -11,5 +11,6 @@ test:
 	bash tests/zellij_layout_smoke.sh
 	bash tests/session_helpers_smoke.sh
 	bash tests/cli_open_smoke.sh
+	bash tests/refresh_images_smoke.sh
 
 check: lint test

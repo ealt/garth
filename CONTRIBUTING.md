@@ -49,6 +49,9 @@ Run all smoke tests before opening a PR:
 bash tests/config_parser_smoke.sh
 bash tests/git_helpers_smoke.sh
 bash tests/zellij_layout_smoke.sh
+bash tests/session_helpers_smoke.sh
+bash tests/cli_open_smoke.sh
+bash tests/refresh_images_smoke.sh
 ```
 
 ### One-Command Check
@@ -73,7 +76,8 @@ docker build --target claude -t garth-claude:latest docker/
 docker build --target codex -t garth-codex:latest docker/
 ```
 
-Or let `garth setup` rebuild automatically.
+Or run `garth refresh-images --agents claude,codex` (equivalent forced rebuild),
+or let `garth setup` rebuild automatically.
 
 ## Testing
 

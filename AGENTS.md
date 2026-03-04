@@ -42,6 +42,7 @@ development workflow. See also:
 ### Other
 
 - `garth agent . codex --sandbox docker` — run a single agent
+- `garth refresh-images --agents claude,codex` — force-refresh Docker images
 - `garth token .` — mint a GitHub App token
 - `garth doctor --repo .` — diagnose setup and auth health
 
@@ -52,6 +53,7 @@ development workflow. See also:
 - `bash tests/zellij_layout_smoke.sh`
 - `bash tests/session_helpers_smoke.sh`
 - `bash tests/cli_open_smoke.sh`
+- `bash tests/refresh_images_smoke.sh`
 
 ### Syntax Checks
 
@@ -86,6 +88,7 @@ development workflow. See also:
 | `stop` | `cmd_stop` |
 | `down` | `cmd_down` |
 | `agent` | `cmd_agent` |
+| `refresh-images` | `cmd_refresh_images` |
 | `token` | `cmd_token` |
 | `setup` | `cmd_setup` |
 | `internal-refresh` | `cmd_internal_refresh` |
@@ -421,7 +424,8 @@ garth/
 │   ├── git_helpers_smoke.sh           # Git helper smoke tests
 │   ├── zellij_layout_smoke.sh         # Zellij layout smoke tests
 │   ├── session_helpers_smoke.sh       # Session state smoke tests
-│   └── cli_open_smoke.sh             # CLI open command smoke tests
+│   ├── cli_open_smoke.sh              # CLI open command smoke tests
+│   └── refresh_images_smoke.sh        # Docker refresh command smoke tests
 ├── docs/
 │   └── github-app-setup.md            # GitHub App wiring guide
 ├── templates/

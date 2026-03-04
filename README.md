@@ -14,6 +14,7 @@ garth new . feature/auth           # branch + worktree + containers + session
 garth new ../other-repo fix/bug    # same thing, different repo
 garth open -d . feature/auth       # open an existing branch
 garth open a1b2c3                  # resume a session by ID
+garth refresh-images               # rebuild configured Docker images
 garth ps                           # see everything running
 ```
 
@@ -322,6 +323,17 @@ garth containers a1b2c3 | xargs docker logs
 garth containers a1b | xargs docker stats
 ```
 
+### Refresh Docker images
+
+```bash
+garth refresh-images                           # rebuild defaults.agents
+garth refresh-images --agents claude,codex     # rebuild specific agents
+garth refresh-images --agents claude --dry-run # preview docker build command
+```
+
+`garth refresh-images` rebuilds selected agent images with
+`docker build --pull --no-cache` and preserves configured `features.packages`.
+
 ### Common options
 
 These flags apply to `new`, `open`, and `up`:
@@ -423,9 +435,9 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
   `config.toml` to your actual vault/item/field names
 - `Claude native installer mismatch`: if you see messages like
   `installMethod is native` or `Native installation exists but ...`, rebuild
-  `garth-claude:latest` (for example `garth setup` or `docker build --target claude -t garth-claude:latest docker`)
+  `garth-claude:latest` (for example `garth refresh-images --agents claude`)
 - `bash: line 1: claude: command not found`: rebuild `garth-claude:latest`
-  from the `garth` repo (`garth setup` is simplest)
+  from the `garth` repo (`garth refresh-images --agents claude` is simplest)
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
 - `Session already exists`: run `garth stop <id>` first (find the ID with
   `garth ps`)

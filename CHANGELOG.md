@@ -11,8 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Setup-managed cron image refresh job (weekly by default) with idempotent
   updates and schedule override via `GARTH_IMAGE_REFRESH_CRON_SCHEDULE`
+- `garth refresh-images` command (alias: `garth refresh`) to force Docker image
+  rebuilds with `--pull --no-cache` for configured or selected agents
 - `features.packages` support for `bun` via upstream installer script, including
   image validation checks for the `bun` binary
+- `garth open <id>` support to resume sessions directly by ID/prefix
+- Short flag aliases for branch/worktree/session selectors:
+  `-b` / `-w` / `-s` (for `garth open` and `garth up`)
 
 ### Fixed
 
@@ -26,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - CI now runs `make check` as single source of truth (no duplicated steps)
+- `garth open` positional syntax now treats the first argument as session ID;
+  directory-based branch open is now explicit via `-d/--dir`
 
 ## [0.1.0] - 2026-03-04
 

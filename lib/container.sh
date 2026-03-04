@@ -733,8 +733,21 @@ garth_docker_build_agent_image() {
   local image_prefix="$2"
   local features_packages_csv
   features_packages_csv="$(garth_features_packages_csv)"
-  garth_require_cmd docker
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    garth_require_cmd docker
+  fi
   garth_run_cmd docker build --build-arg "GARTH_FEATURE_PACKAGES=${features_packages_csv}" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+}
+
+garth_docker_refresh_agent_image() {
+  local agent="$1"
+  local image_prefix="$2"
+  local features_packages_csv
+  features_packages_csv="$(garth_features_packages_csv)"
+  if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+    garth_require_cmd docker
+  fi
+  garth_run_cmd docker build --pull --no-cache --build-arg "GARTH_FEATURE_PACKAGES=${features_packages_csv}" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
 }
 
 garth_docker_image_has_binary() {
