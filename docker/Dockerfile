@@ -11,7 +11,7 @@ RUN set -eux; \
   for pkg in $feature_packages; do \
     [ -n "$pkg" ] || continue; \
     case "$pkg" in \
-      uv) ;; \
+      uv|bun) ;; \
       *) packages="$packages $pkg" ;; \
     esac; \
   done; \
@@ -21,8 +21,16 @@ RUN set -eux; \
   rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-  case ",${GARTH_FEATURE_PACKAGES:-}," in \
+  feature_packages=",${GARTH_FEATURE_PACKAGES:-},"; \
+  case "$feature_packages" in \
     *,uv,*) curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh ;; \
+  esac; \
+  case "$feature_packages" in \
+    *,bun,*) \
+      apt-get update; \
+      apt-get install -y --no-install-recommends unzip; \
+      rm -rf /var/lib/apt/lists/*; \
+      curl -fsSL https://bun.sh/install | env BUN_INSTALL=/usr/local bash ;; \
   esac
 
 # Node.js 22 LTS

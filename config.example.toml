@@ -32,8 +32,8 @@ profile_directory = ""
 
 [features]
 # Optional packages to include when building agent images.
-# Package names are treated as apt packages, except "uv" which uses
-# the upstream installer script.
+# Package names are treated as apt packages, except "uv" and "bun"
+# which use their upstream installer scripts.
 packages = []
 # Optional host mounts for agent containers.
 # Each entry can be:

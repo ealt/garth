@@ -238,7 +238,7 @@ Chrome note:
 Feature notes:
 
 - set `features.packages` to install optional tools in image builds
-  (generic apt package names, plus special support for `uv`)
+  (generic apt package names, plus special support for `uv` and `bun`)
 - set `features.mounts` to add optional host mounts (files or directories)
 - string mount entries default to read-only and mount at the same absolute path
 - table mount entries support explicit `host_path`, optional `container_path`,

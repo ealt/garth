@@ -759,6 +759,11 @@ garth_docker_image_has_feature_package() {
     return $?
   fi
 
+  if [[ "$package" == "bun" ]]; then
+    garth_docker_image_has_binary "$image" "bun"
+    return $?
+  fi
+
   docker run --rm \
     --read-only \
     --tmpfs /tmp:rw,noexec,nosuid,size=256m \
