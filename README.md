@@ -164,6 +164,8 @@ This repo bootstrap script:
 - on macOS, offers to install `aerospace` via Homebrew (auto in `--yes`)
 - skips GitHub App ref prompts when already done
 - auto-builds missing default Docker images when Docker is available
+- optionally installs/updates a managed weekly cron job to rebuild default
+  agent images with `--pull --no-cache`
 - validates agent binaries in Docker images at launch and rebuilds if needed
 
 For automation/non-interactive runs:
@@ -176,6 +178,8 @@ In `--yes` mode, setup attempts `op signin` automatically if the 1Password CLI
 session is missing.
 On macOS with Homebrew available, it also auto-installs Homebrew Python when
 `python3` resolves to `/usr/bin/python3`.
+When `crontab` is available, it also auto-installs/updates the managed weekly
+image-refresh cron job.
 
 Debug launch toggles (env vars):
 
@@ -199,6 +203,14 @@ This will:
 - validate config
 - symlink `garth` into `~/.local/bin/garth`
 - build missing default Docker images (`garth-claude`, `garth-codex`) when possible
+- optionally install/update a managed weekly cron job that rebuilds configured
+  default agent images (`--pull --no-cache`)
+
+Cron note:
+
+- default schedule is `15 3 * * 0` (weekly Sunday 03:15 local time)
+- override schedule with `GARTH_IMAGE_REFRESH_CRON_SCHEDULE`, for example:
+  `GARTH_IMAGE_REFRESH_CRON_SCHEDULE="0 2 * * 1-5" garth setup`
 
 ## GitHub App Setup
 

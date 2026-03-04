@@ -2524,6 +2524,117 @@ garth_setup_python3() {
   fi
 }
 
+garth_shell_single_quote() {
+  local raw="$1"
+  printf "'%s'" "$(printf '%s' "$raw" | sed "s/'/'\"'\"'/g")"
+}
+
+garth_write_image_refresh_script() {
+  local script_path="$1"
+  local image_prefix="$2"
+  local agents_csv="$3"
+
+  local script_dir
+  script_dir=$(dirname "$script_path")
+  mkdir -p "$script_dir"
+  chmod 700 "$script_dir"
+
+  csv_to_array "$agents_csv"
+  local -a configured_agents=("${_GARTH_ARRAY_OUT[@]:-}")
+  local -a agents=()
+  local agent
+  for agent in "${configured_agents[@]}"; do
+    agent="${agent// /}"
+    [[ -n "$agent" ]] || continue
+    agents+=("$agent")
+  done
+  if [[ ${#agents[@]} -eq 0 ]]; then
+    agents=(claude codex)
+  fi
+
+  {
+    echo "#!/usr/bin/env bash"
+    echo "set -euo pipefail"
+    printf 'DOCKER_DIR=%q\n' "$GARTH_ROOT/docker"
+    printf 'IMAGE_PREFIX=%q\n' "$image_prefix"
+    echo "if ! command -v docker >/dev/null 2>&1; then"
+    echo "  echo \"docker not found; skipping Garth image refresh\" >&2"
+    echo "  exit 0"
+    echo "fi"
+    echo "agents=("
+    for agent in "${agents[@]}"; do
+      printf '  %q\n' "$agent"
+    done
+    echo ")"
+    echo "for agent in \"\${agents[@]}\"; do"
+    echo "  docker build --pull --no-cache --target \"\$agent\" -t \"\${IMAGE_PREFIX}-\${agent}:latest\" \"\$DOCKER_DIR\""
+    echo "done"
+  } > "$script_path"
+  chmod 700 "$script_path"
+}
+
+garth_setup_image_refresh_cron() {
+  local image_prefix="$1"
+  local agents_csv="$2"
+
+  if ! command -v crontab >/dev/null 2>&1; then
+    garth_log_warn "Skipping cron setup: 'crontab' command not found"
+    return 0
+  fi
+
+  if ! garth_ask_yn "Install a weekly cron job to refresh Garth Docker images?"; then
+    garth_log_info "Skipped cron image refresh setup"
+    return 0
+  fi
+
+  ensure_state_root
+  local cron_dir="$GARTH_STATE_ROOT/cron"
+  local script_path="$cron_dir/refresh-images.sh"
+  local log_path="$cron_dir/refresh-images.log"
+  local schedule="${GARTH_IMAGE_REFRESH_CRON_SCHEDULE:-15 3 * * 0}"
+  local repo_key
+  repo_key=$(echo "$GARTH_ROOT" | sed -E 's/[^A-Za-z0-9._-]+/_/g')
+  local marker="# garth-image-refresh:${repo_key}"
+
+  garth_write_image_refresh_script "$script_path" "$image_prefix" "$agents_csv"
+
+  local existing
+  existing=$(crontab -l 2>/dev/null || true)
+
+  local had_entry=false
+  if [[ -n "$existing" ]] && printf '%s\n' "$existing" | grep -Fq "$marker"; then
+    had_entry=true
+  fi
+
+  local filtered=""
+  if [[ -n "$existing" ]]; then
+    filtered=$(printf '%s\n' "$existing" | grep -Fv "$marker" || true)
+  fi
+
+  local script_q log_q cron_line new_crontab
+  script_q=$(garth_shell_single_quote "$script_path")
+  log_q=$(garth_shell_single_quote "$log_path")
+  cron_line="${schedule} ${script_q} >> ${log_q} 2>&1 ${marker}"
+
+  if [[ -n "$filtered" ]]; then
+    new_crontab="${filtered}"$'\n'"${cron_line}"$'\n'
+  else
+    new_crontab="${cron_line}"$'\n'
+  fi
+
+  if printf '%s' "$new_crontab" | crontab -; then
+    if [[ "$had_entry" == "true" ]]; then
+      garth_log_success "Updated cron image refresh job (${schedule})"
+    else
+      garth_log_success "Installed cron image refresh job (${schedule})"
+    fi
+    garth_log_info "Refresh script: $script_path"
+    garth_log_info "Refresh log: $log_path"
+  else
+    garth_log_warn "Failed to install cron image refresh job"
+  fi
+}
+
 cmd_setup() {
   local non_interactive=false
   while [[ $# -gt 0 ]]; do
@@ -2642,6 +2753,8 @@ cmd_setup() {
           fi
         done
       fi
+
+      garth_setup_image_refresh_cron "$image_prefix" "$GARTH_DEFAULTS_AGENTS_CSV"
     fi
   fi
 
