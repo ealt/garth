@@ -57,6 +57,7 @@ Session management:
 
 Other:
   agent <dir> [name]      Run one or more agents in docker or host mode
+  agent <dir> [name]      Run one or more agents in docker or host mode
   refresh-images          Rebuild Docker images with pull + no-cache
   token <dir>             Mint a GitHub App installation token
   doctor [--repo <dir>] [--deep] [--skip-token]
@@ -122,6 +123,68 @@ resolve_agents() {
 
   GARTH_SELECTED_AGENTS=("${normalized_agents[@]:-}")
   [[ ${#GARTH_SELECTED_AGENTS[@]} -gt 0 ]] || garth_die "No agents selected" 1
+}
+
+garth_has_local_claude_auth() {
+  local claude_json="$HOME/.claude.json"
+  if [[ -f "$claude_json" ]]; then
+    if garth_python - "$claude_json" >/dev/null 2>&1 << 'PY'; then
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    obj = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+except Exception:
+    raise SystemExit(1)
+
+if isinstance(obj, dict):
+    oauth = obj.get("oauthAccount")
+    if isinstance(oauth, dict) and oauth:
+        raise SystemExit(0)
+    if obj.get("firstStartTime"):
+        raise SystemExit(0)
+
+raise SystemExit(2)
+PY
+      return 0
+    fi
+  fi
+
+  local backup
+  for backup in \
+    "$HOME/.claude/backups/.claude.json.backup."* \
+    "$HOME/.claude/backups/.claude.json.corrupted."*; do
+    if [[ -f "$backup" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+garth_has_local_codex_auth() {
+  local candidate
+  for candidate in \
+    "$HOME/.codex/auth.json" \
+    "$HOME/.codex/tokens.json" \
+    "$HOME/.codex/credentials.json" \
+    "$HOME/.config/codex/auth.json"; do
+    if [[ -f "$candidate" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+garth_agent_has_local_cli_auth() {
+  local agent="$1"
+  case "$agent" in
+    claude) garth_has_local_claude_auth ;;
+    codex) garth_has_local_codex_auth ;;
+    *) return 1 ;;
+  esac
 }
 
 token_cache_dir() {
@@ -1696,6 +1759,24 @@ HELP
   local -a selected_agents=("${GARTH_SELECTED_AGENTS[@]}")
   local selected_agents_csv
   selected_agents_csv=$(garth_join_by "," "${selected_agents[@]}")
+
+  if [[ "$sandbox" == "docker" ]]; then
+    local -a auto_passthrough_agents=()
+    local selected_agent
+    for selected_agent in "${selected_agents[@]}"; do
+      if csv_contains_token "$auth_passthrough_csv" "$selected_agent"; then
+        continue
+      fi
+      if garth_agent_has_local_cli_auth "$selected_agent"; then
+        normalized_passthrough+=("$selected_agent")
+        auto_passthrough_agents+=("$selected_agent")
+      fi
+    done
+    if [[ ${#auto_passthrough_agents[@]} -gt 0 ]]; then
+      auth_passthrough_csv=$(garth_join_by "," "${normalized_passthrough[@]:-}")
+      garth_log_info "Auto-enabled auth passthrough from local CLI auth: $(garth_join_by "," "${auto_passthrough_agents[@]}")"
+    fi
+  fi
 
   if [[ "$sandbox" == "docker" && -n "$auth_passthrough_csv" ]]; then
     garth_log_warn "Docker auth passthrough is enabled for: $auth_passthrough_csv"

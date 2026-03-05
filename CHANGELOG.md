@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   token minting when no repository metadata is available)
 - `garth agent` now uses `defaults.agents` when no agent is provided and can
   launch multi-agent adhoc sessions (or use `--agents`)
+- `garth agent` now auto-detects local Claude/Codex CLI auth state and
+  auto-enables Docker auth passthrough to avoid unnecessary API key fallback
 
 ### Fixed
 
