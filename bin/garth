@@ -57,6 +57,7 @@ Session management:
 
 Other:
   agent <dir> [name]      Run one or more agents in docker or host mode
+  agent <dir> [name]      Run one or more agents in docker or host mode
   refresh-images          Rebuild Docker images with pull + no-cache
   token <dir>             Mint a GitHub App installation token
   doctor [--repo <dir>] [--deep] [--skip-token]
