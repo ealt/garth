@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `garth open <id>` support to resume sessions directly by ID/prefix
 - Short flag aliases for branch/worktree/session selectors:
   `-b` / `-w` / `-s` (for `garth open` and `garth up`)
+- `garth agent` now supports launching from non-git directories (skips GitHub
+  token minting when no repository metadata is available)
+- `garth agent` now uses `defaults.agents` when no agent is provided and can
+  launch multi-agent adhoc sessions (or use `--agents`)
 
 ### Fixed
 

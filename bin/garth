@@ -56,7 +56,7 @@ Session management:
   containers <id>         List Docker container IDs for a session
 
 Other:
-  agent <dir> <name>      Run a single agent in docker or host mode
+  agent <dir> [name]      Run one or more agents in docker or host mode
   refresh-images          Rebuild Docker images with pull + no-cache
   token <dir>             Mint a GitHub App installation token
   doctor [--repo <dir>] [--deep] [--skip-token]
@@ -110,15 +110,18 @@ resolve_agents() {
   fi
 
   csv_to_array "$csv"
-  GARTH_SELECTED_AGENTS=("${_GARTH_ARRAY_OUT[@]:-}")
-  [[ ${#GARTH_SELECTED_AGENTS[@]} -gt 0 ]] || garth_die "No agents selected" 1
-
+  local -a raw_agents=("${_GARTH_ARRAY_OUT[@]:-}")
+  local -a normalized_agents=()
   local agent
-  for agent in "${GARTH_SELECTED_AGENTS[@]}"; do
+  for agent in "${raw_agents[@]:-}"; do
     agent="${agent// /}"
     [[ -n "$agent" ]] || continue
     agent_exists "$agent" || garth_die "Unknown agent in selection: $agent" 1
+    normalized_agents+=("$agent")
   done
+
+  GARTH_SELECTED_AGENTS=("${normalized_agents[@]:-}")
+  [[ ${#GARTH_SELECTED_AGENTS[@]} -gt 0 ]] || garth_die "No agents selected" 1
 }
 
 token_cache_dir() {
@@ -1599,6 +1602,7 @@ HELP
 cmd_agent() {
   local dir=""
   local agent=""
+  local agents_csv=""
   local auth_passthrough_csv=""
   local sandbox=""
   local network=""
@@ -1612,6 +1616,10 @@ cmd_agent() {
         ;;
       --auth-passthrough)
         auth_passthrough_csv="$2"
+        shift 2
+        ;;
+      --agents)
+        agents_csv="$2"
         shift 2
         ;;
       --network)
@@ -1632,8 +1640,13 @@ cmd_agent() {
         ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth agent <dir> <name> [--sandbox docker|none] [--network bridge|none] [--safety safe|permissive]
-       [--auth-passthrough <a,b>]
+Usage: garth agent <dir> [name] [--agents <a,b>] [--sandbox docker|none] [--network bridge|none]
+       [--safety safe|permissive] [--auth-passthrough <a,b>]
+
+Notes:
+  - <dir> may be a non-git directory.
+  - In non-git directories, GitHub token minting is skipped.
+  - If [name] and --agents are omitted, defaults.agents is used.
 HELP
         return 0
         ;;
@@ -1653,7 +1666,7 @@ HELP
     esac
   done
 
-  [[ -n "$dir" && -n "$agent" ]] || garth_die "agent requires <dir> <name>" 1
+  [[ -n "$dir" ]] || garth_die "agent requires <dir>" 1
 
   load_config
   auth_passthrough_csv="${auth_passthrough_csv:-$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV}"
@@ -1670,35 +1683,93 @@ HELP
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
 
+  if [[ -n "$agent" && -n "$agents_csv" ]]; then
+    garth_die "Use either [name] or --agents, not both." 1
+  fi
+  local requested_agents_csv=""
+  if [[ -n "$agents_csv" ]]; then
+    requested_agents_csv="$agents_csv"
+  elif [[ -n "$agent" ]]; then
+    requested_agents_csv="$agent"
+  fi
+  resolve_agents "$requested_agents_csv"
+  local -a selected_agents=("${GARTH_SELECTED_AGENTS[@]}")
+  local selected_agents_csv
+  selected_agents_csv=$(garth_join_by "," "${selected_agents[@]}")
+
   if [[ "$sandbox" == "docker" && -n "$auth_passthrough_csv" ]]; then
     garth_log_warn "Docker auth passthrough is enabled for: $auth_passthrough_csv"
     garth_log_warn "This weakens isolation by exposing local CLI auth state to containers."
   fi
 
-  agent_exists "$agent" || garth_die "Unknown agent: $agent" 1
-
   local abs_dir repo_root branch repo_name session
+  local is_git_repo=true
   abs_dir=$(garth_abs_path "$dir")
-  repo_root=$(garth_git_repo_root "$abs_dir") || garth_die "Not inside a git repo: $abs_dir" 1
-  branch=$(garth_git_current_branch "$repo_root")
-  repo_name=$(garth_git_repo_name "$repo_root")
-  session="$(garth_git_session_name "$repo_name" "$branch")-adhoc"
+  if repo_root=$(garth_git_repo_root "$abs_dir" 2>/dev/null); then
+    branch=$(garth_git_current_branch "$repo_root")
+    repo_name=$(garth_git_repo_name "$repo_root")
+    session="$(garth_git_session_name "$repo_name" "$branch")-adhoc"
+  else
+    is_git_repo=false
+    repo_root="$abs_dir"
+    branch="nogit"
+    repo_name=$(garth_slugify_branch "$(basename "$abs_dir")")
+    session="garth-${repo_name}-adhoc"
+    garth_log_warn "Directory is not a git repository; continuing without GitHub repo metadata."
+  fi
 
   local tmp_dir
   tmp_dir=$(garth_make_temp_dir)
 
   local token expires_at expires_epoch installation_id owner_repo
-  local minted_file
-  minted_file=$(mktemp "${TMPDIR:-/tmp}/garth-minted-token.XXXXXX") || return 1
-  garth_register_cleanup_path "$minted_file"
-  mint_token_for_repo "$repo_root" > "$minted_file" || return 3
-  IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo < "$minted_file"
-  garth_write_token_file "$tmp_dir" "$token" >/dev/null
-  local require_api_key=true
-  if [[ "$sandbox" == "none" ]] || csv_contains_token "$auth_passthrough_csv" "$agent"; then
-    require_api_key=false
+  if [[ "$is_git_repo" == "true" ]]; then
+    local minted_file
+    minted_file=$(mktemp "${TMPDIR:-/tmp}/garth-minted-token.XXXXXX") || return 1
+    garth_register_cleanup_path "$minted_file"
+    mint_token_for_repo "$repo_root" > "$minted_file" || return 3
+    IFS=$'\t' read -r token expires_at expires_epoch installation_id owner_repo < "$minted_file"
+  else
+    token=""
+    expires_at="-"
+    expires_epoch="0"
+    installation_id="-"
+    owner_repo="-"
   fi
-  garth_prepare_agent_env_file "$tmp_dir" "$agent" "$require_api_key" >/dev/null || return 3
+  garth_write_token_file "$tmp_dir" "$token" >/dev/null
+
+  local selected_agent
+  local require_api_key
+  for selected_agent in "${selected_agents[@]}"; do
+    require_api_key=true
+    if [[ "$sandbox" == "none" ]] || csv_contains_token "$auth_passthrough_csv" "$selected_agent"; then
+      require_api_key=false
+    fi
+    garth_prepare_agent_env_file "$tmp_dir" "$selected_agent" "$require_api_key" >/dev/null || return 3
+  done
+
+  if [[ ${#selected_agents[@]} -gt 1 ]]; then
+    if [[ "$sandbox" == "docker" && "$GARTH_DRY_RUN" != "true" ]]; then
+      garth_require_cmd docker
+      for selected_agent in "${selected_agents[@]}"; do
+        garth_ensure_agent_image_ready "$selected_agent" "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" || \
+          garth_die "Docker image setup failed for agent '$selected_agent'" 1
+      done
+    fi
+
+    local layout_file
+    layout_file=$(mktemp "${TMPDIR:-/tmp}/garth-layout.${session}.XXXXXX.kdl") || return 1
+    garth_register_cleanup_path "$layout_file"
+    garth_generate_zellij_layout "$layout_file" "$abs_dir" "$session" "$repo_root" "$tmp_dir" "$network" \
+      "$GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX" "$safety_mode" "$sandbox" "$auth_passthrough_csv" "${selected_agents[@]}"
+
+    if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+      garth_log_info "Launching multi-agent adhoc session: $selected_agents_csv"
+    fi
+    garth_zellij_launch "$session" "$layout_file"
+    return 0
+  fi
+
+  agent="${selected_agents[0]}"
 
   if [[ "$sandbox" == "none" ]]; then
     local cmd
