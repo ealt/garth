@@ -354,6 +354,8 @@ Auth note:
 
 - `--sandbox docker`: agent API keys are required unless the agent is listed in
   `defaults.auth_passthrough` (or passed via `--auth-passthrough`)
+- `garth agent` auto-detects local `claude`/`codex` CLI auth state and
+  auto-enables passthrough for those agents in Docker mode
 - `--sandbox none`: local CLI login auth is supported (for example
   `claude auth login`, `codex login`)
 - when `claude` is in auth passthrough, `garth` mounts Claude auth/state paths
