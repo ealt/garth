@@ -368,10 +368,12 @@ Auth note:
 - on interactive terminals, when a secret read requires 1Password auth,
   `garth` auto-attempts `eval "$(op signin)"` and retries
 
-### Run one agent directly
+### Run agent(s) directly
 
 ```bash
-garth agent . codex --sandbox docker
+garth agent . --sandbox docker                 # use defaults.agents
+garth agent . codex --sandbox docker           # single agent override
+garth agent . --agents claude,codex --sandbox docker
 ```
 
 ### Mint a token
