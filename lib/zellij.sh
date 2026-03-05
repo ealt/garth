@@ -66,11 +66,15 @@ garth_zellij_launcher_script() {
   local zellij_bin="$1"
   local session="$2"
   local layout_file="$3"
-  local attach_cmd create_cmd
+  local attach_cmd create_cmd list_cmd awk_program
   printf -v attach_cmd '%q attach %q' "$zellij_bin" "$session"
   printf -v create_cmd '%q -s %q --new-session-with-layout %q' "$zellij_bin" "$session" "$layout_file"
-  # Attach if possible; otherwise create; then attach once more to handle races.
-  printf '%s || %s || %s' "$attach_cmd" "$create_cmd" "$attach_cmd"
+  printf -v list_cmd '%q list-sessions -n 2>/dev/null' "$zellij_bin"
+  awk_program='{print $1}'
+  # Some zellij versions can return success for `attach` when the session is missing.
+  # Check existence explicitly so we create the session on first launch.
+  printf 'if %s | awk %q | grep -Fxq %q; then %s || %s || %s; else %s || %s; fi' \
+    "$list_cmd" "$awk_program" "$session" "$attach_cmd" "$create_cmd" "$attach_cmd" "$create_cmd" "$attach_cmd"
 }
 
 # Args:

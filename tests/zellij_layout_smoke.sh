@@ -41,4 +41,8 @@ grep -q 'tab name="codex" {' "$tmp_layout"
 [[ "$(grep -c 'pane name="shell" size="35%" cwd="/tmp/worktree"' "$tmp_layout")" -eq 2 ]]
 [[ "$(grep -c 'size="65%" command="docker"' "$tmp_layout")" -eq 2 ]]
 
+launch_script="$(garth_zellij_launcher_script "/usr/local/bin/zellij" "test-session" "/tmp/layout.kdl")"
+grep -q 'list-sessions -n' <<< "$launch_script"
+grep -q -- '--new-session-with-layout' <<< "$launch_script"
+
 echo "zellij_layout_smoke: ok"
