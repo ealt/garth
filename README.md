@@ -324,6 +324,7 @@ uncommitted changes).
 ```bash
 garth gc                                    # clean stopped sessions + orphans
 garth gc --dry-run                          # preview what would be cleaned
+garth gc --repos ~/Documents               # also sweep branches across repos
 ```
 
 `garth gc` performs a non-interactive sweep that removes:
@@ -332,6 +333,10 @@ garth gc --dry-run                          # preview what would be cleaned
 - orphan Zellij sessions (`garth-*` with no matching state)
 - orphan Docker containers (labeled `garth.session` with no matching state)
 - local git branches whose upstream has been deleted (`[gone]`)
+
+Without `--repos`, only the current repo's branches are checked. With
+`--repos <dir>`, every git repo under `<dir>` is fetched and pruned.
+The flag is repeatable for multiple parent directories.
 
 ### Pipe container IDs to Docker
 

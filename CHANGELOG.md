@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   auto-enables Docker auth passthrough to avoid unnecessary API key fallback
 - `garth gc` command for non-interactive cleanup of stopped session state dirs,
   orphan Zellij sessions, orphan Docker containers, and local git branches
-  whose upstream has been deleted (`[gone]`)
+  whose upstream has been deleted (`[gone]`); supports `--repos <dir>` to sweep
+  branches across all git repos under a parent directory
 - `garth stop --clean` flag to remove session state after stopping, preventing
   stale state accumulation without requiring a full `garth down`
 - `garth doctor` now warns when `claude_share`, `claude_dot_claude`, or

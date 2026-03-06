@@ -22,6 +22,7 @@ garth open a1b2c3                          # resume by session ID
 garth ps                                   # list sessions
 garth stop a1b2c3 --clean                  # stop session + remove state
 garth gc                                   # clean stopped sessions + orphans
+garth gc --repos ~/Documents               # also sweep branches across repos
 garth refresh-images --agents claude       # rebuild one Docker image
 garth doctor --repo .                      # validate prerequisites
 bash tests/config_parser_smoke.sh          # run config tests

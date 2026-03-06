@@ -3780,24 +3780,61 @@ HELP
   return 0
 }
 
+gc_prune_gone_branches() {
+  local repo_path="$1" dry_run="$2"
+  local cleaned=0 branch_name repo_name
+  repo_name=$(basename "$repo_path")
+
+  # Fetch to update tracking state (prune is handled by git config)
+  git -C "$repo_path" fetch --quiet 2>/dev/null || true
+
+  while IFS= read -r branch_name; do
+    [[ -n "$branch_name" ]] || continue
+    branch_name="${branch_name#  }"
+    if [[ "$dry_run" == "true" ]]; then
+      garth_log_info "[dry-run] Would delete gone branch in $repo_name: $branch_name"
+    else
+      git -C "$repo_path" branch -D "$branch_name" >/dev/null 2>&1 || true
+      garth_log_success "Deleted gone branch in $repo_name: $branch_name"
+    fi
+    cleaned=$((cleaned + 1))
+  done < <(git -C "$repo_path" branch -vv 2>/dev/null | grep ': gone\]' | awk '{print $1}')
+  return $cleaned
+}
+
 cmd_gc() {
   local dry_run=false
+  local -a repo_dirs=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dry-run|-n)
         dry_run=true
         shift
         ;;
+      --repos)
+        [[ -n "${2:-}" ]] || garth_die "--repos requires a directory argument" 1
+        repo_dirs+=("$2")
+        shift 2
+        ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth gc [--dry-run]
+Usage: garth gc [--dry-run] [--repos <dir>...]
 
 Clean up stale Garth resources: stopped session state directories, orphan
 Zellij sessions, and orphan Docker containers. Also deletes local git branches
 whose upstream has been deleted ([gone]).
 
 Options:
-  --dry-run, -n   Report what would be cleaned without taking action.
+  --dry-run, -n       Report what would be cleaned without taking action.
+  --repos <dir>       Parent directory to scan for git repos (repeatable).
+                      Fetches each repo and deletes local branches whose
+                      upstream is gone. Without --repos, only the current
+                      repo is checked.
+
+Examples:
+  garth gc                              # clean sessions + current repo
+  garth gc --repos ~/Documents          # also sweep all repos under ~/Documents
+  garth gc --repos ~/Documents -n       # dry-run the full sweep
 
 This is safe to run at any time — it never touches active sessions, running
 containers, or worktrees.
@@ -3879,21 +3916,22 @@ HELP
     done < <(docker ps -aq --filter label=garth.session)
   fi
 
-  # --- Gone local branches in current repo ---
-  local repo_root
-  if repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
-    local branch_name
-    while IFS= read -r branch_name; do
-      [[ -n "$branch_name" ]] || continue
-      branch_name="${branch_name#  }"
-      if [[ "$dry_run" == "true" ]]; then
-        garth_log_info "[dry-run] Would delete gone branch: $branch_name"
-      else
-        git -C "$repo_root" branch -D "$branch_name" >/dev/null 2>&1 || true
-        garth_log_success "Deleted gone branch: $branch_name"
-      fi
-      cleaned=$((cleaned + 1))
-    done < <(git -C "$repo_root" branch -vv 2>/dev/null | grep ': gone\]' | awk '{print $1}')
+  # --- Gone local branches ---
+  if [[ ${#repo_dirs[@]} -gt 0 ]]; then
+    local parent_dir repo_candidate
+    for parent_dir in "${repo_dirs[@]}"; do
+      [[ -d "$parent_dir" ]] || continue
+      for repo_candidate in "$parent_dir"/*/; do
+        [[ -d "$repo_candidate" ]] || continue
+        git -C "$repo_candidate" rev-parse --git-dir >/dev/null 2>&1 || continue
+        gc_prune_gone_branches "$repo_candidate" "$dry_run" || cleaned=$((cleaned + $?))
+      done
+    done
+  else
+    local repo_root
+    if repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+      gc_prune_gone_branches "$repo_root" "$dry_run" || cleaned=$((cleaned + $?))
+    fi
   fi
 
   if ((cleaned == 0)); then
