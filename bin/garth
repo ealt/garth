@@ -51,8 +51,9 @@ Workspace lifecycle:
 
 Session management:
   ps [-q]                 List all sessions with status
-  stop <id>               Stop a session (preserves worktree and state)
+  stop <id> [--clean]     Stop a session (preserves worktree and state)
   down <id> [-y]          Remove a session and all its resources
+  gc [--dry-run]          Clean up stopped sessions, orphans, gone branches
   containers <id>         List Docker container IDs for a session
 
 Other:
@@ -2330,21 +2331,34 @@ HELP
 
 cmd_stop() {
   local id_prefix=""
+  local clean=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --clean)
+        clean=true
+        shift
+        ;;
       --help|-h)
         cat << 'HELP'
-Usage: garth stop <id>
+Usage: garth stop <id> [--clean]
 
-Stop a session's Zellij session and Docker containers. The worktree, branch,
-and session state are preserved so the session can be resumed later with
-'garth open' or removed entirely with 'garth down'.
+Stop a session's Zellij session and Docker containers.
+
+By default the worktree, branch, and session state are preserved so the session
+can be resumed later with 'garth open' or removed entirely with 'garth down'.
+
+Options:
+  --clean         Also remove the session state directory after stopping.
+                  Worktrees and branches are kept. Equivalent to 'garth stop'
+                  followed by removing the state dir (a lighter 'garth down'
+                  that leaves the worktree intact).
 
 Arguments:
   <id>            Session ID or unambiguous prefix (from garth ps)
 
 Examples:
   garth stop a1b2c3                 Stop a specific session
+  garth stop a1b2c3 --clean         Stop and remove session state
   garth ps -q | xargs garth stop   Stop all sessions
 HELP
         return 0
@@ -2369,6 +2383,10 @@ HELP
   session=$(garth_session_name_for_dir "$session_dir")
   garth_log_info "Stopping session: $session ($(garth_session_id_for_dir "$session_dir"))"
   stop_session_by_dir "$session_dir"
+  if [[ "$clean" == "true" ]]; then
+    rm -rf "$session_dir"
+    garth_log_info "Removed session state: $session_dir"
+  fi
 }
 
 worktree_has_uncommitted_changes() {
@@ -3762,6 +3780,131 @@ HELP
   return 0
 }
 
+cmd_gc() {
+  local dry_run=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run|-n)
+        dry_run=true
+        shift
+        ;;
+      --help|-h)
+        cat << 'HELP'
+Usage: garth gc [--dry-run]
+
+Clean up stale Garth resources: stopped session state directories, orphan
+Zellij sessions, and orphan Docker containers. Also deletes local git branches
+whose upstream has been deleted ([gone]).
+
+Options:
+  --dry-run, -n   Report what would be cleaned without taking action.
+
+This is safe to run at any time — it never touches active sessions, running
+containers, or worktrees.
+HELP
+        return 0
+        ;;
+      *)
+        garth_die "Unknown option for gc: $1" 1
+        ;;
+    esac
+  done
+
+  local cleaned=0
+
+  # --- Stopped / stale session state dirs ---
+  ensure_state_root
+  local session_dir session_name
+  while IFS= read -r session_dir; do
+    [[ -n "$session_dir" ]] || continue
+    [[ -f "$session_dir/stopped_epoch" ]] || continue
+    session_name=$(garth_session_name_for_dir "$session_dir")
+    if [[ "$dry_run" == "true" ]]; then
+      garth_log_info "[dry-run] Would remove stopped session state: $session_name"
+    else
+      rm -rf "$session_dir"
+      garth_log_success "Removed stopped session state: $session_name"
+    fi
+    cleaned=$((cleaned + 1))
+  done < <(garth_session_list_dirs)
+
+  # --- Orphan Zellij sessions ---
+  if command -v zellij >/dev/null 2>&1; then
+    local known_session_names=$'\n'
+    while IFS= read -r session_dir; do
+      [[ -n "$session_dir" ]] || continue
+      known_session_names+=$(garth_session_name_for_dir "$session_dir")
+      known_session_names+=$'\n'
+    done < <(garth_session_list_dirs)
+
+    local zj
+    while IFS= read -r zj; do
+      [[ -n "$zj" ]] || continue
+      [[ "$zj" == garth-* ]] || continue
+      if [[ "$known_session_names" != *$'\n'"$zj"$'\n'* ]]; then
+        if [[ "$dry_run" == "true" ]]; then
+          garth_log_info "[dry-run] Would kill orphan zellij session: $zj"
+        else
+          zellij delete-session "$zj" --force >/dev/null 2>&1 || true
+          garth_log_success "Killed orphan zellij session: $zj"
+        fi
+        cleaned=$((cleaned + 1))
+      fi
+    done < <(garth_zellij_list_sessions)
+  fi
+
+  # --- Orphan Docker containers ---
+  if command -v docker >/dev/null 2>&1; then
+    local known_session_names=$'\n'
+    while IFS= read -r session_dir; do
+      [[ -n "$session_dir" ]] || continue
+      known_session_names+=$(garth_session_name_for_dir "$session_dir")
+      known_session_names+=$'\n'
+    done < <(garth_session_list_dirs)
+
+    local cid csess
+    while IFS= read -r cid; do
+      [[ -n "$cid" ]] || continue
+      csess=$(docker inspect -f '{{ index .Config.Labels "garth.session" }}' "$cid" 2>/dev/null || true)
+      [[ -n "$csess" ]] || continue
+      if [[ "$known_session_names" != *$'\n'"$csess"$'\n'* ]]; then
+        if [[ "$dry_run" == "true" ]]; then
+          garth_log_info "[dry-run] Would remove orphan container: $cid (session=$csess)"
+        else
+          docker rm -f "$cid" >/dev/null 2>&1 || true
+          garth_log_success "Removed orphan container: $cid (session=$csess)"
+        fi
+        cleaned=$((cleaned + 1))
+      fi
+    done < <(docker ps -aq --filter label=garth.session)
+  fi
+
+  # --- Gone local branches in current repo ---
+  local repo_root
+  if repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    local branch_name
+    while IFS= read -r branch_name; do
+      [[ -n "$branch_name" ]] || continue
+      branch_name="${branch_name#  }"
+      if [[ "$dry_run" == "true" ]]; then
+        garth_log_info "[dry-run] Would delete gone branch: $branch_name"
+      else
+        git -C "$repo_root" branch -D "$branch_name" >/dev/null 2>&1 || true
+        garth_log_success "Deleted gone branch: $branch_name"
+      fi
+      cleaned=$((cleaned + 1))
+    done < <(git -C "$repo_root" branch -vv 2>/dev/null | grep ': gone\]' | awk '{print $1}')
+  fi
+
+  if ((cleaned == 0)); then
+    garth_log_success "Nothing to clean up"
+  elif [[ "$dry_run" == "true" ]]; then
+    garth_log_info "Dry run complete: $cleaned item(s) would be cleaned"
+  else
+    garth_log_success "Cleaned $cleaned item(s)"
+  fi
+}
+
 main() {
   local command="${1:-}"
   if [[ -z "$command" ]]; then
@@ -3785,6 +3928,7 @@ main() {
     token) cmd_token "$@" ;;
     doctor) cmd_doctor "$@" ;;
     stop) cmd_stop "$@" ;;
+    gc) cmd_gc "$@" ;;
     setup) cmd_setup "$@" ;;
     internal-refresh) cmd_internal_refresh "$@" ;;
     --help|-h|help) usage ;;
