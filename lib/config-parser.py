@@ -369,10 +369,10 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "seccomp_profile": security_raw.get("seccomp_profile", "docker/seccomp-profile.json"),
         "auth_mount_mode": {
             "codex_dot_codex": auth_mount_mode_raw.get("codex_dot_codex", "rw"),
-            "claude_dot_claude": auth_mount_mode_raw.get("claude_dot_claude", "ro"),
-            "claude_config": auth_mount_mode_raw.get("claude_config", "ro"),
+            "claude_dot_claude": auth_mount_mode_raw.get("claude_dot_claude", "rw"),
+            "claude_config": auth_mount_mode_raw.get("claude_config", "rw"),
             "claude_state": auth_mount_mode_raw.get("claude_state", "rw"),
-            "claude_share": auth_mount_mode_raw.get("claude_share", "rw"),
+            "claude_share": auth_mount_mode_raw.get("claude_share", "ro"),
             "claude_cache": auth_mount_mode_raw.get("claude_cache", "rw"),
         },
     }

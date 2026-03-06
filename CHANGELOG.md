@@ -32,8 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   branches across all git repos under a parent directory
 - `garth stop --clean` flag to remove session state after stopping, preventing
   stale state accumulation without requiring a full `garth down`
-- `garth doctor` now warns when `claude_dot_claude` or `claude_config` auth
-  mount modes are set to `rw`
+- `garth doctor` now warns when `claude_share` auth mount mode is set to `rw`
 
 ### Fixed
 
@@ -56,11 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
-- Default auth mount modes for `claude_dot_claude` and `claude_config` changed
-  from `rw` to `ro` to prevent container processes from overwriting host files
+- Default auth mount mode for `claude_share` changed from `rw` to `ro` to
+  prevent container auto-updaters from overwriting host binaries with
+  wrong-platform builds
   ([#29661](https://github.com/anthropics/claude-code/issues/29661))
-- `claude_share`, `claude_state`, and `claude_cache` remain `rw` (Claude writes
-  runtime data to `~/.local/share/claude`; `ro` causes `EROFS` errors)
+- `claude_dot_claude`, `claude_config`, `claude_state`, and `claude_cache`
+  remain `rw` (Claude writes auth/config data there; `ro` causes `EROFS`)
 
 ## [0.1.0] - 2026-03-04
 

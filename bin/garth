@@ -3513,7 +3513,7 @@ HELP
   # Warn if auth mount modes allow containers to overwrite host binaries.
   # See: https://github.com/anthropics/claude-code/issues/29661
   if [[ "$config_loaded" == "true" ]]; then
-    local -a rw_warn_mounts=("claude_dot_claude" "claude_config")
+    local -a rw_warn_mounts=("claude_share")
     local rw_warn_key rw_warn_mode
     for rw_warn_key in "${rw_warn_mounts[@]}"; do
       rw_warn_mode=$(garth_container_auth_mount_mode "$rw_warn_key" "ro")

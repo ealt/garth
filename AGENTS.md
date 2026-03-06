@@ -303,15 +303,16 @@ Default mount modes are chosen to balance isolation with agent functionality:
 
 | Key | Default | Rationale |
 |-----|---------|-----------|
-| `claude_dot_claude` | `ro` | Settings — no container writes needed |
-| `claude_config` | `ro` | Config — no container writes needed |
-| `claude_share` | `rw` | Claude writes runtime data here (e.g. `appendFileSync`) |
+| `claude_dot_claude` | `rw` | Claude writes auth/settings here (`appendFileSync`) |
+| `claude_config` | `rw` | Claude writes config here |
 | `claude_state` | `rw` | Session state — container writes expected |
+| `claude_share` | `ro` | Contains installed binaries — protects host from overwrites |
 | `claude_cache` | `rw` | Cache — container writes expected |
 
-`garth doctor` warns if `claude_dot_claude` or `claude_config` are overridden
-to `rw`. Note: `claude_share` must remain `rw` — setting it to `ro` causes
-`EROFS` errors inside the container.
+`garth doctor` warns if `claude_share` is overridden to `rw`, since a
+container auto-updater could overwrite host binaries with wrong-platform
+builds. `claude_dot_claude` and `claude_config` must remain `rw` — setting
+them to `ro` causes `EROFS` errors inside the container.
 
 ### Audit Logging
 
