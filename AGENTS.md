@@ -384,6 +384,40 @@ echo "git_helpers_smoke: ok"
   - Commands/tests run with key outputs
 - Update README/docs when CLI behavior changes
 
+## Claude Code Slash Commands
+
+Garth provides slash commands for Claude Code (`.claude/commands/*.md`) that let
+users describe tasks in natural language and have Claude manage workspaces.
+
+### Commands
+
+| Command | File | Description |
+|---------|------|-------------|
+| `/workspace` | `.claude/commands/workspace.md` | Create or resume a workspace from a task description |
+| `/sessions` | `.claude/commands/sessions.md` | List and manage sessions by status |
+| `/recover` | `.claude/commands/recover.md` | Diagnose and fix degraded sessions |
+| `/cleanup` | `.claude/commands/cleanup.md` | Clean up stopped sessions and orphan resources |
+
+### Branch naming convention
+
+`/workspace` generates branch names from task descriptions:
+- **Prefix**: `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`
+- **Body**: 2-4 lowercase hyphen-joined words
+- **Max length**: 50 characters total
+- **Examples**: `feature/api-auth`, `fix/login-timeout`, `docs/setup-guide`
+
+### Autonomy modes
+
+- **Interactive (default)**: commands present plans and ask before acting
+- **`--auto` flag**: per-invocation opt-in to skip confirmations; maps to
+  Garth's `--yes` flag for destructive operations
+
+### CLI resolution
+
+Commands try `garth` on PATH first, then fall back to `bin/garth` relative to
+the repo root. On complete failure, they suggest `./setup.sh` or
+`garth doctor --repo .`.
+
 ## Supported Agents
 
 Configured in TOML under `[agents.<name>]`, each with a Docker build target in
@@ -400,6 +434,12 @@ Configured in TOML under `[agents.<name>]`, each with a Docker build target in
 
 ```text
 garth/
+├── .claude/
+│   └── commands/
+│       ├── workspace.md                  # /workspace — create or resume workspace
+│       ├── sessions.md                   # /sessions — list and manage sessions
+│       ├── recover.md                    # /recover — fix degraded sessions
+│       └── cleanup.md                    # /cleanup — clean up stale resources
 ├── .github/
 │   ├── workflows/ci.yml               # CI: lint + smoke tests on push/PR
 │   ├── workflows/release.yml          # Release: tag → tarball + GitHub Release
