@@ -48,12 +48,15 @@ protected_paths = [".git/hooks", ".git/config", ".github", ".gitmodules"]
 seccomp_profile = "docker/seccomp-profile.json"
 
 [security.auth_mount_mode]
-# Mount mode experiment controls for auth passthrough paths (ro|rw).
+# Mount mode controls for auth passthrough paths (ro|rw).
+# Paths that contain installed binaries or config should be "ro" to prevent
+# container auto-updaters from overwriting host files with wrong-platform
+# binaries.  Only paths that need container writes should be "rw".
 codex_dot_codex = "rw"
-claude_dot_claude = "rw"
-claude_config = "rw"
+claude_dot_claude = "ro"
+claude_config = "ro"
 claude_state = "rw"
-claude_share = "rw"
+claude_share = "ro"
 claude_cache = "rw"
 
 [agents.claude]
