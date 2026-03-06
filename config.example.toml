@@ -56,7 +56,7 @@ codex_dot_codex = "rw"
 claude_dot_claude = "ro"
 claude_config = "ro"
 claude_state = "rw"
-claude_share = "ro"
+claude_share = "rw"
 claude_cache = "rw"
 
 [agents.claude]

@@ -372,7 +372,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
             "claude_dot_claude": auth_mount_mode_raw.get("claude_dot_claude", "ro"),
             "claude_config": auth_mount_mode_raw.get("claude_config", "ro"),
             "claude_state": auth_mount_mode_raw.get("claude_state", "rw"),
-            "claude_share": auth_mount_mode_raw.get("claude_share", "ro"),
+            "claude_share": auth_mount_mode_raw.get("claude_share", "rw"),
             "claude_cache": auth_mount_mode_raw.get("claude_cache", "rw"),
         },
     }

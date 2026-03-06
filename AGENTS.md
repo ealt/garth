@@ -299,19 +299,19 @@ When agents are listed in `defaults.auth_passthrough`, host CLI auth directories
 are mounted into the container. Mount mode (`ro`/`rw`) is configurable via
 `[security.auth_mount_mode]`.
 
-Default mount modes are chosen to prevent container processes from overwriting
-host files (e.g. a Linux auto-updater replacing a macOS binary):
+Default mount modes are chosen to balance isolation with agent functionality:
 
 | Key | Default | Rationale |
 |-----|---------|-----------|
 | `claude_dot_claude` | `ro` | Settings — no container writes needed |
 | `claude_config` | `ro` | Config — no container writes needed |
-| `claude_share` | `ro` | Installed binaries — must not be overwritten |
+| `claude_share` | `rw` | Claude writes runtime data here (e.g. `appendFileSync`) |
 | `claude_state` | `rw` | Session state — container writes expected |
 | `claude_cache` | `rw` | Cache — container writes expected |
 
-`garth doctor` warns if `claude_share`, `claude_dot_claude`, or `claude_config`
-are overridden to `rw`.
+`garth doctor` warns if `claude_dot_claude` or `claude_config` are overridden
+to `rw`. Note: `claude_share` must remain `rw` — setting it to `ro` causes
+`EROFS` errors inside the container.
 
 ### Audit Logging
 

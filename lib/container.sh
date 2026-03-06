@@ -413,7 +413,7 @@ garth_container_emit_auth_mounts_lines() {
     claude_dot_claude_mode=$(garth_container_auth_mount_mode "claude_dot_claude" "ro")
     claude_config_mode=$(garth_container_auth_mount_mode "claude_config" "ro")
     claude_state_mode=$(garth_container_auth_mount_mode "claude_state" "rw")
-    claude_share_mode=$(garth_container_auth_mount_mode "claude_share" "ro")
+    claude_share_mode=$(garth_container_auth_mount_mode "claude_share" "rw")
     claude_cache_mode=$(garth_container_auth_mount_mode "claude_cache" "rw")
 
     if [[ -d "$HOME/.claude" ]]; then
