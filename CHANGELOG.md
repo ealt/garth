@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   launch multi-agent adhoc sessions (or use `--agents`)
 - `garth agent` now auto-detects local Claude/Codex CLI auth state and
   auto-enables Docker auth passthrough to avoid unnecessary API key fallback
+- `garth gc` command for non-interactive cleanup of stopped session state dirs,
+  orphan Zellij sessions, orphan Docker containers, and local git branches
+  whose upstream has been deleted (`[gone]`)
+- `garth stop --clean` flag to remove session state after stopping, preventing
+  stale state accumulation without requiring a full `garth down`
+- `garth doctor` now warns when `claude_share`, `claude_dot_claude`, or
+  `claude_config` auth mount modes are set to `rw`
 
 ### Fixed
 
@@ -45,6 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   directory-based branch open is now explicit via `-d/--dir`
 - Documentation now includes Docker refresh command usage and troubleshooting
   guidance
+
+### Security
+
+- Default auth mount modes for `claude_share`, `claude_dot_claude`, and
+  `claude_config` changed from `rw` to `ro` to prevent container auto-updaters
+  from overwriting host binaries with wrong-platform builds
+  ([#29661](https://github.com/anthropics/claude-code/issues/29661))
+- Only `claude_state` and `claude_cache` remain `rw` (require container writes)
 
 ## [0.1.0] - 2026-03-04
 

@@ -11,6 +11,12 @@ Supported flags:
 - `--dry-run` — survey and report what would be cleaned, but take no action
 - `--deep` — include deep doctor checks and orphan detection
 
+## Quick path
+
+For routine cleanup, `garth gc` handles the common cases non-interactively
+(stopped state dirs, orphan Zellij/Docker, `[gone]` branches). Use this slash
+command for a more thorough, interactive sweep.
+
 ## Instructions
 
 ### 1. Survey current state

@@ -306,6 +306,7 @@ garth ps -q                                 # session IDs only (for piping)
 
 ```bash
 garth stop a1b2c3                           # stop session (preserves worktree)
+garth stop a1b2c3 --clean                   # stop + remove session state
 garth down a1b2c3                           # remove session + all resources
 garth down a1b2c3 -y                        # remove without confirmation
 garth ps -q | xargs garth stop              # stop all sessions
@@ -313,8 +314,24 @@ garth ps -q | xargs garth stop              # stop all sessions
 
 `garth stop` halts a session's Zellij session and Docker containers but
 preserves the worktree and session state so it can be resumed later with
-`garth open`. `garth down` removes everything including managed worktrees
-(warns before deleting if there are uncommitted changes).
+`garth open`. Use `--clean` to also remove the session state directory
+(lighter than `garth down` — keeps worktrees). `garth down` removes
+everything including managed worktrees (warns before deleting if there are
+uncommitted changes).
+
+### Garbage collection
+
+```bash
+garth gc                                    # clean stopped sessions + orphans
+garth gc --dry-run                          # preview what would be cleaned
+```
+
+`garth gc` performs a non-interactive sweep that removes:
+
+- stopped session state directories
+- orphan Zellij sessions (`garth-*` with no matching state)
+- orphan Docker containers (labeled `garth.session` with no matching state)
+- local git branches whose upstream has been deleted (`[gone]`)
 
 ### Pipe container IDs to Docker
 
