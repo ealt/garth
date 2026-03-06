@@ -86,6 +86,29 @@ PY
   printf '%s' "$body"
 }
 
+garth_github_api_json_fast() {
+  local path="$1"
+  local token="$2"
+
+  local url="https://api.github.com${path}"
+  local response
+  response=$(curl -sS --connect-timeout 3 --max-time 5 \
+    -X GET "$url" \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer $token" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    -w $'\n%{http_code}') || return 1
+
+  local status="${response##*$'\n'}"
+  local body="${response%$'\n'*}"
+
+  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+    return 1
+  fi
+
+  printf '%s' "$body"
+}
+
 garth_github_generate_app_jwt() {
   local app_id="$1"
   local private_key_file="$2"
@@ -275,4 +298,51 @@ import sys
 value = sys.argv[1]
 print(int(datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()))
 PY
+}
+
+garth_github_context_url() {
+  local owner_repo="$1"
+  local branch="$2"
+  local token="$3"
+  local repo_root="$4"
+
+  local default_branch
+  default_branch=$(garth_git_default_branch "$repo_root")
+
+  if [[ "$branch" == "$default_branch" ]]; then
+    printf '%s' "https://github.com/${owner_repo}"
+    return 0
+  fi
+
+  if [[ "${GARTH_DRY_RUN}" == "true" ]]; then
+    printf '%s' "https://github.com/${owner_repo}/tree/${branch}"
+    return 0
+  fi
+
+  local owner="${owner_repo%%/*}"
+  local api_response
+  if api_response=$(garth_github_api_json_fast \
+    "/repos/${owner_repo}/pulls?head=${owner}:${branch}&state=open&per_page=1" \
+    "$token"); then
+    local pr_number
+    pr_number=$(garth_python - << 'PY' "$api_response"
+import json
+import sys
+try:
+    pulls = json.loads(sys.argv[1])
+    if isinstance(pulls, list) and len(pulls) > 0:
+        print(pulls[0]["number"])
+    else:
+        raise SystemExit(1)
+except (KeyError, IndexError, json.JSONDecodeError):
+    raise SystemExit(1)
+PY
+    ) || true
+    if [[ -n "$pr_number" ]]; then
+      printf '%s' "https://github.com/${owner_repo}/pull/${pr_number}"
+      return 0
+    fi
+  fi
+
+  printf '%s' "https://github.com/${owner_repo}/tree/${branch}"
 }

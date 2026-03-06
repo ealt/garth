@@ -31,6 +31,7 @@ bash tests/zellij_layout_smoke.sh          # run layout tests
 bash tests/session_helpers_smoke.sh        # run session tests
 bash tests/cli_open_smoke.sh              # run CLI open tests
 bash tests/refresh_images_smoke.sh         # run Docker refresh CLI test
+bash tests/github_context_url_smoke.sh    # run GitHub context URL tests
 bash -n bin/garth lib/*.sh                 # shell syntax check
 python3 -m py_compile lib/config-parser.py # Python syntax check
 ```

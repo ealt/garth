@@ -13,5 +13,6 @@ test:
 	bash tests/cli_open_smoke.sh
 	bash tests/agent_smoke.sh
 	bash tests/refresh_images_smoke.sh
+	bash tests/github_context_url_smoke.sh
 
 check: lint test

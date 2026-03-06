@@ -182,18 +182,21 @@ Wraps the 1Password CLI (`op`) for secret retrieval with auto sign-in retry.
 
 **Dependencies:** `lib/common.sh`.
 
-### lib/github-app.sh (278 lines)
+### lib/github-app.sh (348 lines)
 
 Mints short-lived GitHub App installation tokens: constructs RS256 JWTs,
 resolves installation IDs, exchanges for access tokens via the GitHub REST API.
 
 **Key functions:** `garth_base64url` (URL-safe base64 for JWT segments),
+`garth_github_api_json_fast` (timeout-constrained GET for best-effort lookups),
 `garth_github_generate_app_jwt` (build and sign RS256 JWT),
 `garth_github_private_key_valid` (validate PEM via `openssl pkey`),
 `garth_github_validate_app_jwt` (verify JWT against `GET /app`),
 `garth_github_resolve_installation_id` (strategies: `single`, `static_map`,
 `by_owner`), `garth_github_mint_installation_token` (full orchestration,
-prints `token\texpires_at\tinstallation_id`), `garth_iso8601_to_epoch`.
+prints `token\texpires_at\tinstallation_id`), `garth_iso8601_to_epoch`,
+`garth_github_context_url` (resolve best GitHub URL: PR page, branch tree, or
+base repo).
 
 **Dependencies:** `lib/common.sh`, `lib/secrets.sh`.
 
