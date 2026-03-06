@@ -70,7 +70,8 @@ garth_zellij_launcher_script() {
   printf -v attach_cmd '%q attach %q' "$zellij_bin" "$session"
   printf -v create_cmd '%q -s %q --new-session-with-layout %q' "$zellij_bin" "$session" "$layout_file"
   printf -v list_cmd '%q list-sessions -n 2>/dev/null' "$zellij_bin"
-  # shellcheck disable=SC2016 -- awk program, $1 must not expand
+  # awk program — $1 must not expand
+  # shellcheck disable=SC2016
   awk_program='{print $1}'
   # Some zellij versions can return success for `attach` when the session is missing.
   # Check existence explicitly so we create the session on first launch.
