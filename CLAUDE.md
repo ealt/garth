@@ -57,3 +57,25 @@ ask before acting.
 
 Commands try `garth` on PATH first, then fall back to `bin/garth` (relative to
 repo root). If neither is found, they suggest running `./setup.sh`.
+
+## Resource Stewardship
+
+Garth sessions, Docker containers, Zellij sessions, worktrees, and git branches
+accumulate over time if not cleaned up. As an agent working in this repo, you
+should proactively manage these resources:
+
+- **Before creating a workspace**: run `garth gc` to clear stopped sessions and
+  orphans. Mention what was cleaned (if anything) so the user stays informed.
+- **When listing sessions**: flag stopped or degraded sessions and suggest
+  cleanup. Prefer `garth stop --clean` over bare `garth stop` when a session
+  won't be resumed.
+- **When finishing work**: if the user is done with a session, offer to stop it
+  with `--clean` or tear it down with `garth down`.
+- **Periodically during long conversations**: if you notice stale resources
+  while running other commands, mention them and offer to clean up.
+- **Cross-repo branch hygiene**: when running `/cleanup`, include
+  `garth gc --repos ~/Documents` to sweep gone branches across all repos.
+
+The goal is to keep the environment clean without requiring the user to remember
+to run maintenance commands. Be a good steward — clean up after yourself and
+flag accumulation before it becomes a problem.

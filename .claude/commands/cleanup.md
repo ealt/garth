@@ -13,13 +13,24 @@ Supported flags:
 
 ## Quick path
 
-For routine cleanup, `garth gc` handles the common cases non-interactively
-(stopped state dirs, orphan Zellij/Docker, `[gone]` branches). Use this slash
-command for a more thorough, interactive sweep.
+For routine cleanup, `garth gc --repos ~/Documents` handles the common cases
+non-interactively (stopped state dirs, orphan Zellij/Docker, `[gone]` branches
+across all repos). Use the full flow below for a more thorough, interactive
+sweep.
 
 ## Instructions
 
-### 1. Survey current state
+### 1. Run gc first
+
+Start with a broad sweep:
+```bash
+garth gc --repos ~/Documents
+```
+
+Report what was cleaned. If gc handled everything, you may not need to continue
+unless `--deep` is requested.
+
+### 2. Survey current state
 
 Run these commands to assess the environment:
 ```bash

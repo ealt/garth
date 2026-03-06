@@ -28,9 +28,12 @@ From the task description, generate a branch name following this convention:
 - **Examples**: `feature/api-auth`, `fix/login-timeout`,
   `refactor/config-parser`, `docs/setup-guide`
 
-### 3. Check for existing sessions and branches
+### 3. Housekeeping and conflict check
 
-Run these commands to detect conflicts:
+First, run `garth gc` to clear any stopped sessions or orphaned resources.
+Briefly report what was cleaned (if anything).
+
+Then check for conflicts:
 ```bash
 garth ps
 git branch --list '*<branch-body-pattern>*'

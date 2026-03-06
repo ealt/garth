@@ -41,11 +41,15 @@ Based on each session's status, offer the user relevant actions:
 | **Detached** | Open (`garth open <id>`), stop, down |
 | **Stopped** | Open (`garth open <id>`), down (remove) |
 
+If there are stopped sessions that look stale (no recent activity), proactively
+suggest cleaning them up with `garth down <id>` or `garth gc`.
+
 ### 5. Execute requested actions
 
 When the user picks an action:
 - **Open**: `garth open <session-id>`
-- **Stop**: `garth stop <session-id>`
+- **Stop**: prefer `garth stop <session-id> --clean` unless the user explicitly
+  wants to preserve state for later resume
 - **Down**: confirm first (destructive), then `garth down <session-id>`
 - **Recover**: suggest running `/recover <session-id>`
 
