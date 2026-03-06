@@ -691,7 +691,8 @@ HELP
   fi
 
   local github_url
-  github_url=$(garth_git_https_url_from_remote "$(garth_git_remote_url "$repo_root" origin)")
+  github_url=$(garth_github_context_url "$owner_repo" "$branch" "$token" "$repo_root") || \
+    github_url="https://github.com/${owner_repo}"
 
   local profile_name
   profile_name=$(compute_profile_name "$repo_name" "$branch")

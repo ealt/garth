@@ -89,7 +89,8 @@ garth up .                         # interactive launcher
 
 ### Workspace lifecycle
 - One command to create a branch, worktree, containers, and terminal session
-- Launches Cursor pointed at the worktree, Chrome open to the GitHub repo
+- Launches Cursor pointed at the worktree, Chrome open to the PR page, branch
+  tree, or repo (context-aware)
 - Resume or reattach to existing workspaces without recreating anything
 - Interactive wizard or fully explicit flags — your choice
 - Git worktree workflow for parallel branch/task execution

@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   launch multi-agent adhoc sessions (or use `--agents`)
 - `garth agent` now auto-detects local Claude/Codex CLI auth state and
   auto-enables Docker auth passthrough to avoid unnecessary API key fallback
+- Context-aware GitHub page opening: Chrome now opens the PR page when the
+  current branch has an open pull request, the branch tree view for other
+  non-default branches, and the base repo URL on the default branch
 - `garth gc` command for non-interactive cleanup of stopped session state dirs,
   orphan Zellij sessions, orphan Docker containers, and local git branches
   whose upstream has been deleted (`[gone]`); supports `--repos <dir>` to sweep
