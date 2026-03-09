@@ -51,20 +51,21 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN useradd -ms /bin/bash agent
 
 # Git credential helper reads GitHub token from mounted file.
-RUN cat > /usr/local/bin/garth-git-credential-helper << 'SCRIPT' \
- && chmod +x /usr/local/bin/garth-git-credential-helper
-#!/usr/bin/env bash
-set -euo pipefail
-token_file="${GARTH_GITHUB_TOKEN_FILE:-/run/garth/github_token}"
-token=""
-if [[ -f "$token_file" ]]; then
-  token="$(cat "$token_file")"
-fi
-echo "protocol=https"
-echo "host=github.com"
-echo "username=x-access-token"
-echo "password=$token"
-SCRIPT
+RUN set -eux; \
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'token_file="${GARTH_GITHUB_TOKEN_FILE:-/run/garth/github_token}"' \
+    'token=""' \
+    'if [[ -f "$token_file" ]]; then' \
+    '  token="$(cat "$token_file")"' \
+    'fi' \
+    'echo "protocol=https"' \
+    'echo "host=github.com"' \
+    'echo "username=x-access-token"' \
+    'echo "password=$token"' \
+    > /usr/local/bin/garth-git-credential-helper; \
+  chmod +x /usr/local/bin/garth-git-credential-helper
 
 RUN git config --system credential.helper /usr/local/bin/garth-git-credential-helper
 
