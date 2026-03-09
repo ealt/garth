@@ -68,8 +68,8 @@ api_key_ref = "op://<VAULT>/Anthropic/api-key"
 
 [agents.codex]
 base_command = "codex"
-safe_args = []
-permissive_args = ["--dangerously-bypass-approvals-and-sandbox"]
+safe_args = ["--no-alt-screen"]
+permissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]
 api_key_env = "OPENAI_API_KEY"
 api_key_ref = "op://<VAULT>/OpenAI/api-key"
 
