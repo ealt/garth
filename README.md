@@ -151,6 +151,27 @@ Optional:
 - `Google Chrome` (profile-per-project launcher)
 - `aerospace` (workspace movement)
 
+## OS Support
+
+`garth`'s core workflow is cross-platform at the host level and is exercised in
+CI on Ubuntu: git/worktree management, config parsing, token handling, Docker
+container orchestration, and Zellij session generation all run outside the
+macOS-only GUI helpers.
+
+- Works on macOS and Linux for core orchestration:
+  `garth new`, `garth open`, `garth up`, `garth ps`, session state management,
+  Docker sandboxing, token refresh, and Zellij layout/session startup.
+- macOS-only integrations:
+  Cursor auto-launch, Chrome profile/window launch, AeroSpace workspace
+  placement, and the `launchctl` GUI PATH/Python setup.
+- Linux behavior:
+  unsupported GUI integrations are skipped with warnings, and Zellij falls back
+  to launching in the current shell instead of using macOS terminal-app
+  launchers.
+- Config note:
+  the default `chrome.profiles_dir` in `config.example.toml` uses a macOS
+  path. That setting only matters if you enable Chrome launching on macOS.
+
 ## Setup
 
 ```bash
@@ -441,9 +462,9 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
 
 ## Platform Notes
 
-- macOS: full launch flow (Cursor/Chrome/AeroSpace)
-- non-macOS: core orchestration still runs; unsupported GUI steps are skipped
-  with warnings
+- macOS: full launch flow, including GUI integrations
+- Linux: core orchestration path is supported; macOS-only GUI integrations are
+  skipped with warnings
 
 ## Troubleshooting
 
