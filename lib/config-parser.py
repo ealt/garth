@@ -55,6 +55,7 @@ ALLOWED_TOKEN_REFRESH = {
     "retry_initial_interval",
     "retry_max_interval",
     "cache_github_app_secrets",
+    "background_auto_signin",
 }
 ALLOWED_GITHUB_APP = {
     "app_id_ref",
@@ -199,6 +200,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "retry_initial_interval": token_raw.get("retry_initial_interval", "5s"),
         "retry_max_interval": token_raw.get("retry_max_interval", "60s"),
         "cache_github_app_secrets": token_raw.get("cache_github_app_secrets", False),
+        "background_auto_signin": token_raw.get("background_auto_signin", True),
     }
 
     if not isinstance(token_refresh["enabled"], bool):
@@ -211,6 +213,8 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error("token_refresh.retry_backoff must be one of: exponential, fixed")
     if not isinstance(token_refresh["cache_github_app_secrets"], bool):
         out.error("token_refresh.cache_github_app_secrets must be true or false")
+    if not isinstance(token_refresh["background_auto_signin"], bool):
+        out.error("token_refresh.background_auto_signin must be true or false")
 
     norm["token_refresh"] = token_refresh
 
@@ -483,6 +487,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_TOKEN_REFRESH_RETRY_INITIAL_INTERVAL", token["retry_initial_interval"])
     put("GARTH_TOKEN_REFRESH_RETRY_MAX_INTERVAL", token["retry_max_interval"])
     put("GARTH_TOKEN_REFRESH_CACHE_GITHUB_APP_SECRETS", token["cache_github_app_secrets"])
+    put("GARTH_TOKEN_REFRESH_BACKGROUND_AUTO_SIGNIN", token["background_auto_signin"])
 
     put("GARTH_GITHUB_APP_APP_ID_REF", gh["app_id_ref"])
     put("GARTH_GITHUB_APP_PRIVATE_KEY_REF", gh["private_key_ref"])

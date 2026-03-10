@@ -296,6 +296,9 @@ Token refresh note:
 - set `token_refresh.cache_github_app_secrets = true` (opt-in) to read GitHub
   App secrets once when the background refresher starts and reuse them for later
   token mints, avoiding repeated 1Password prompts during the day
+- set `token_refresh.background_auto_signin = false` (opt-in) to prevent
+  background refresh from auto-running `op signin`; this avoids popup
+  interruptions but can leave sessions degraded until you re-auth manually
 - security tradeoff: this keeps GitHub App secret material resident in the
   refresher process for the lifetime of that session
 
@@ -497,6 +500,8 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
   expected
 - `I only want to authenticate once per workspace`: opt into
   `token_refresh.cache_github_app_secrets = true` in `config.toml`
+- `I never want background auth popups`: set
+  `token_refresh.background_auto_signin = false` in `config.toml`
 - `Ghostty would like to access data from other apps`: set
   `defaults.terminal_launcher = "current_shell"` to avoid macOS app-launch
   permission prompts from Ghostty/Terminal automation

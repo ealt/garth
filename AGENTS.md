@@ -52,6 +52,7 @@ development workflow. See also:
 - `bash tests/git_helpers_smoke.sh`
 - `bash tests/zellij_layout_smoke.sh`
 - `bash tests/zellij_launcher_smoke.sh`
+- `bash tests/secrets_auto_signin_guard_smoke.sh`
 - `bash tests/session_helpers_smoke.sh`
 - `bash tests/cli_open_smoke.sh`
 - `bash tests/refresh_images_smoke.sh`
@@ -485,6 +486,7 @@ garth/
 │   ├── git_helpers_smoke.sh           # Git helper smoke tests
 │   ├── zellij_layout_smoke.sh         # Zellij layout smoke tests
 │   ├── zellij_launcher_smoke.sh       # Zellij launcher selection smoke tests
+│   ├── secrets_auto_signin_guard_smoke.sh # 1Password auto-signin guard smoke tests
 │   ├── session_helpers_smoke.sh       # Session state smoke tests
 │   ├── cli_open_smoke.sh              # CLI open command smoke tests
 │   ├── github_app_override_smoke.sh   # GitHub app env-override token mint smoke test

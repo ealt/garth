@@ -3247,6 +3247,13 @@ cmd_internal_refresh() {
   initial_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_INITIAL_INTERVAL")
   max_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_MAX_INTERVAL")
 
+  if [[ "${GARTH_TOKEN_REFRESH_BACKGROUND_AUTO_SIGNIN:-true}" != "true" ]]; then
+    export GARTH_OP_AUTO_SIGNIN=false
+    garth_audit_log "$session_dir" "token_refresh_background_auto_signin" \
+      "session=$session" \
+      "state=disabled"
+  fi
+
   if [[ "${GARTH_TOKEN_REFRESH_CACHE_GITHUB_APP_SECRETS:-false}" == "true" ]]; then
     if garth_github_prepare_refresh_secret_cache; then
       garth_audit_log "$session_dir" "token_refresh_secret_cache_ready" \

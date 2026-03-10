@@ -10,6 +10,7 @@ test:
 	bash tests/git_helpers_smoke.sh
 	bash tests/zellij_layout_smoke.sh
 	bash tests/zellij_launcher_smoke.sh
+	bash tests/secrets_auto_signin_guard_smoke.sh
 	bash tests/session_helpers_smoke.sh
 	bash tests/cli_open_smoke.sh
 	bash tests/agent_smoke.sh

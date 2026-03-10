@@ -21,6 +21,9 @@ retry_max_interval = "60s"
 # Opt-in: read GitHub App secrets once when refresher starts, then reuse them
 # for background token mints to avoid repeated 1Password prompts.
 cache_github_app_secrets = false
+# If false, background refresh will never auto-run "op signin" (no popup
+# interruptions), and will mark the session degraded until you re-auth manually.
+background_auto_signin = true
 
 [github_app]
 app_id_ref = "op://<VAULT>/GitHub App/app-id"
