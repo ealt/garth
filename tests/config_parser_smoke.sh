@@ -14,6 +14,7 @@ echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_PROTECTED_PATHS_JSON='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_SECCOMP_PROFILE='
 echo "$ENV_OUT" | grep -q '^GARTH_FEATURES_PACKAGES_JSON='
 echo "$ENV_OUT" | grep -q '^GARTH_FEATURES_MOUNTS_JSON='
+echo "$ENV_OUT" | grep -q '^GARTH_TOKEN_REFRESH_CACHE_GITHUB_APP_SECRETS='
 
 TMP_CFG="$(mktemp "${TMPDIR:-/tmp}/garth-config-smoke.XXXXXX.toml")"
 TMP_ERR="$(mktemp "${TMPDIR:-/tmp}/garth-config-smoke.XXXXXX.err")"

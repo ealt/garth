@@ -15,6 +15,9 @@ failure_retry_window = "10m"
 retry_backoff = "exponential"
 retry_initial_interval = "5s"
 retry_max_interval = "60s"
+# Opt-in: read GitHub App secrets once when refresher starts, then reuse them
+# for background token mints to avoid repeated 1Password prompts.
+cache_github_app_secrets = false
 
 [github_app]
 app_id_ref = "op://<VAULT>/GitHub App/app-id"

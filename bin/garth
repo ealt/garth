@@ -375,7 +375,15 @@ mint_token_for_repo() {
   fi
 
   # Ensure interactive signin (when needed) happens in the parent shell.
-  garth_require_op
+  local require_op=true
+  if [[ -n "${GARTH_GITHUB_APP_APP_ID_OVERRIDE:-}" && -n "${GARTH_GITHUB_APP_PRIVATE_KEY_FILE_OVERRIDE:-}" ]]; then
+    if [[ "$GARTH_GITHUB_APP_INSTALLATION_STRATEGY" != "single" || -n "${GARTH_GITHUB_APP_INSTALLATION_ID_OVERRIDE:-}" ]]; then
+      require_op=false
+    fi
+  fi
+  if [[ "$require_op" == "true" ]]; then
+    garth_require_op
+  fi
 
   local minted
   if ! minted=$(garth_github_mint_installation_token "$owner_repo"); then
@@ -3238,6 +3246,20 @@ cmd_internal_refresh() {
   retry_window_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_FAILURE_RETRY_WINDOW")
   initial_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_INITIAL_INTERVAL")
   max_interval_seconds=$(garth_parse_duration_to_seconds "$GARTH_TOKEN_REFRESH_RETRY_MAX_INTERVAL")
+
+  if [[ "${GARTH_TOKEN_REFRESH_CACHE_GITHUB_APP_SECRETS:-false}" == "true" ]]; then
+    if garth_github_prepare_refresh_secret_cache; then
+      garth_audit_log "$session_dir" "token_refresh_secret_cache_ready" \
+        "session=$session" \
+        "state=ready"
+    else
+      garth_audit_log "$session_dir" "token_refresh_secret_cache_unavailable" \
+        "session=$session" \
+        "state=unavailable"
+      garth_log_warn "Background secret cache setup failed; token refresh may still require 1Password prompts."
+    fi
+  fi
+
   garth_audit_log "$session_dir" "token_refresher_loop_started" \
     "session=$session" \
     "repo_root=$repo_root"

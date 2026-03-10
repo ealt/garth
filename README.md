@@ -258,7 +258,7 @@ Key sections:
 - `[defaults]`: selected agents, sandbox mode, network mode,
   workspace target, safety mode,
   optional `auth_passthrough`
-- `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
+- `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior, optional background GitHub App secret caching
 - `[github_app]`: 1Password refs and installation selection strategy
 - `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
 - `[features]`: optional packages and host mounts for agent images
@@ -283,6 +283,14 @@ Feature notes:
   and optional `mode` (`ro|rw`)
 - mounting toolchain can help when command/rule files in `~/.claude`/`~/.codex`
   are symlinks into your toolchain repo
+
+Token refresh note:
+
+- set `token_refresh.cache_github_app_secrets = true` (opt-in) to read GitHub
+  App secrets once when the background refresher starts and reuse them for later
+  token mints, avoiding repeated 1Password prompts during the day
+- security tradeoff: this keeps GitHub App secret material resident in the
+  refresher process for the lifetime of that session
 
 ## Usage
 
@@ -480,6 +488,8 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
 - `garth keeps prompting for 1Password`: check token cache reuse with
   `garth token . --machine`; if the token is near expiry, a fresh `op` auth is
   expected
+- `I only want to authenticate once per workspace`: opt into
+  `token_refresh.cache_github_app_secrets = true` in `config.toml`
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
