@@ -5,6 +5,11 @@ if [[ -n "${GARTH_SECRETS_SH_LOADED:-}" ]]; then
 fi
 GARTH_SECRETS_SH_LOADED=1
 : "${GARTH_OP_SESSION_READY:=false}"
+: "${GARTH_OP_AUTO_SIGNIN:=true}"
+
+garth_op_auto_signin_enabled() {
+  [[ "${GARTH_OP_AUTO_SIGNIN:-true}" == "true" ]]
+}
 
 garth_require_op() {
   if [[ "$GARTH_OP_SESSION_READY" == "true" ]]; then
@@ -17,7 +22,7 @@ garth_require_op() {
     return 0
   fi
   if ! op whoami >/dev/null 2>&1; then
-    if [[ -t 0 || -t 1 || -t 2 ]]; then
+    if garth_op_auto_signin_enabled && [[ -t 0 || -t 1 || -t 2 ]]; then
       garth_log_info "1Password CLI is not signed in; running 'eval \"\$(op signin)\"'" >&2
       if eval "$(op signin)" && op whoami >/dev/null 2>&1; then
         GARTH_OP_SESSION_READY=true
@@ -26,6 +31,9 @@ garth_require_op() {
         return 0
       fi
       garth_die "1Password CLI sign-in failed. Run: eval \"\$(op signin)\"" 2
+    fi
+    if ! garth_op_auto_signin_enabled; then
+      garth_die "1Password CLI is not signed in and auto sign-in is disabled. Run: eval \"\$(op signin)\"" 2
     fi
     garth_die "1Password CLI is not signed in. Run: eval \"\$(op signin)\"" 2
   fi
@@ -45,7 +53,7 @@ garth_secret_read() {
     return 0
   fi
 
-  if grep -qi "not currently signed in" "$err_file" && [[ -t 0 || -t 1 || -t 2 ]]; then
+  if grep -qi "not currently signed in" "$err_file" && garth_op_auto_signin_enabled && [[ -t 0 || -t 1 || -t 2 ]]; then
     GARTH_OP_SESSION_READY=false
     export GARTH_OP_SESSION_READY
     garth_log_info "1Password session refresh required; running 'eval \"\$(op signin)\"'" >&2
@@ -77,7 +85,7 @@ garth_ensure_secret_access() {
     return 0
   fi
 
-  if grep -qi "not currently signed in" "$err_file" && [[ -t 0 || -t 1 || -t 2 ]]; then
+  if grep -qi "not currently signed in" "$err_file" && garth_op_auto_signin_enabled && [[ -t 0 || -t 1 || -t 2 ]]; then
     GARTH_OP_SESSION_READY=false
     export GARTH_OP_SESSION_READY
     garth_log_info "1Password session refresh required; running 'eval \"\$(op signin)\"'" >&2

@@ -45,6 +45,7 @@ ALLOWED_DEFAULTS = {
     "docker_image_prefix",
     "auth_passthrough",
     "default_branch",
+    "terminal_launcher",
 }
 ALLOWED_TOKEN_REFRESH = {
     "enabled",
@@ -53,6 +54,8 @@ ALLOWED_TOKEN_REFRESH = {
     "retry_backoff",
     "retry_initial_interval",
     "retry_max_interval",
+    "cache_github_app_secrets",
+    "background_auto_signin",
 }
 ALLOWED_GITHUB_APP = {
     "app_id_ref",
@@ -147,6 +150,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "docker_image_prefix": defaults_raw.get("docker_image_prefix", "garth"),
         "auth_passthrough": defaults_raw.get("auth_passthrough", []),
         "default_branch": defaults_raw.get("default_branch", ""),
+        "terminal_launcher": defaults_raw.get("terminal_launcher", "auto"),
     }
 
     if not isinstance(defaults["agents"], list) or not defaults["agents"]:
@@ -164,6 +168,10 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error("defaults.workspace must be a string (for example: auto, 3)")
     if defaults["safety_mode"] not in {"safe", "permissive"}:
         out.error("defaults.safety_mode must be one of: safe, permissive")
+    if defaults["terminal_launcher"] not in {"auto", "current_shell", "ghostty", "ghostty_app", "terminal"}:
+        out.error(
+            "defaults.terminal_launcher must be one of: auto, current_shell, ghostty, ghostty_app, terminal"
+        )
 
     if not isinstance(defaults["docker_image_prefix"], str) or not defaults["docker_image_prefix"]:
         out.error("defaults.docker_image_prefix must be a non-empty string")
@@ -191,6 +199,8 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "retry_backoff": token_raw.get("retry_backoff", "exponential"),
         "retry_initial_interval": token_raw.get("retry_initial_interval", "5s"),
         "retry_max_interval": token_raw.get("retry_max_interval", "60s"),
+        "cache_github_app_secrets": token_raw.get("cache_github_app_secrets", False),
+        "background_auto_signin": token_raw.get("background_auto_signin", True),
     }
 
     if not isinstance(token_refresh["enabled"], bool):
@@ -201,6 +211,10 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
     validate_duration(token_refresh["retry_max_interval"], "token_refresh.retry_max_interval", out)
     if token_refresh["retry_backoff"] not in {"exponential", "fixed"}:
         out.error("token_refresh.retry_backoff must be one of: exponential, fixed")
+    if not isinstance(token_refresh["cache_github_app_secrets"], bool):
+        out.error("token_refresh.cache_github_app_secrets must be true or false")
+    if not isinstance(token_refresh["background_auto_signin"], bool):
+        out.error("token_refresh.background_auto_signin must be true or false")
 
     norm["token_refresh"] = token_refresh
 
@@ -464,6 +478,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX", defaults["docker_image_prefix"])
     put("GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV", ",".join(defaults["auth_passthrough"]))
     put("GARTH_DEFAULTS_DEFAULT_BRANCH", defaults["default_branch"])
+    put("GARTH_DEFAULTS_TERMINAL_LAUNCHER", defaults["terminal_launcher"])
 
     put("GARTH_TOKEN_REFRESH_ENABLED", token["enabled"])
     put("GARTH_TOKEN_REFRESH_LEAD_TIME", token["lead_time"])
@@ -471,6 +486,8 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_TOKEN_REFRESH_RETRY_BACKOFF", token["retry_backoff"])
     put("GARTH_TOKEN_REFRESH_RETRY_INITIAL_INTERVAL", token["retry_initial_interval"])
     put("GARTH_TOKEN_REFRESH_RETRY_MAX_INTERVAL", token["retry_max_interval"])
+    put("GARTH_TOKEN_REFRESH_CACHE_GITHUB_APP_SECRETS", token["cache_github_app_secrets"])
+    put("GARTH_TOKEN_REFRESH_BACKGROUND_AUTO_SIGNIN", token["background_auto_signin"])
 
     put("GARTH_GITHUB_APP_APP_ID_REF", gh["app_id_ref"])
     put("GARTH_GITHUB_APP_PRIVATE_KEY_REF", gh["private_key_ref"])

@@ -9,11 +9,14 @@ ENV_OUT=$("$GARTH_ROOT/lib/config-parser.py" env "$GARTH_ROOT/config.example.tom
 
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_SAFETY_MODE='
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_DEFAULT_BRANCH='
+echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_TERMINAL_LAUNCHER='
 echo "$ENV_OUT" | grep -q '^GARTH_AGENT_CLAUDE_BASE_COMMAND='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_PROTECTED_PATHS_JSON='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_SECCOMP_PROFILE='
 echo "$ENV_OUT" | grep -q '^GARTH_FEATURES_PACKAGES_JSON='
 echo "$ENV_OUT" | grep -q '^GARTH_FEATURES_MOUNTS_JSON='
+echo "$ENV_OUT" | grep -q '^GARTH_TOKEN_REFRESH_CACHE_GITHUB_APP_SECRETS='
+echo "$ENV_OUT" | grep -q '^GARTH_TOKEN_REFRESH_BACKGROUND_AUTO_SIGNIN='
 
 TMP_CFG="$(mktemp "${TMPDIR:-/tmp}/garth-config-smoke.XXXXXX.toml")"
 TMP_ERR="$(mktemp "${TMPDIR:-/tmp}/garth-config-smoke.XXXXXX.err")"

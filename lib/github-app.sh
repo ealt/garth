@@ -184,6 +184,58 @@ print(sys.argv[1].strip())
 PY
 }
 
+garth_github_prepare_refresh_secret_cache() {
+  local app_id key_file installation_id
+
+  app_id=$(garth_secret_read "$GARTH_GITHUB_APP_APP_ID_REF") || return 1
+  app_id=$(garth_trim_whitespace "$app_id")
+  [[ -n "$app_id" ]] || return 1
+  if [[ ! "$app_id" =~ ^[0-9]+$ ]]; then
+    garth_log_error "GitHub App id is invalid: '$app_id'"
+    garth_log_error "Ref ${GARTH_GITHUB_APP_APP_ID_REF} must resolve to a numeric app id."
+    return 1
+  fi
+
+  key_file=$(mktemp "${TMPDIR:-/tmp}/garth-app-key.cached.XXXXXX") || return 1
+  garth_register_cleanup_path "$key_file"
+  garth_secret_write_file "$GARTH_GITHUB_APP_PRIVATE_KEY_REF" "$key_file" || return 1
+  if ! garth_github_private_key_valid "$key_file"; then
+    # Common pattern: PEM stored as a single escaped string with "\n".
+    garth_github_normalize_private_key_file "$key_file"
+  fi
+  if ! garth_github_private_key_valid "$key_file"; then
+    garth_log_error "GitHub App private key is invalid."
+    garth_log_error "Ref ${GARTH_GITHUB_APP_PRIVATE_KEY_REF} must resolve to PEM text with BEGIN/END PRIVATE KEY lines."
+    garth_log_error "If your item has multiple fields, point private_key_ref at the exact field/id that stores the PEM content."
+    return 1
+  fi
+
+  installation_id=""
+  if [[ "$GARTH_GITHUB_APP_INSTALLATION_STRATEGY" == "single" ]]; then
+    if [[ -z "$GARTH_GITHUB_APP_INSTALLATION_ID_REF" ]]; then
+      garth_die "github_app.installation_id_ref is required for strategy=single" 1
+    fi
+    installation_id=$(garth_secret_read "$GARTH_GITHUB_APP_INSTALLATION_ID_REF") || return 1
+    installation_id=$(garth_trim_whitespace "$installation_id")
+    [[ -n "$installation_id" ]] || return 1
+    if [[ ! "$installation_id" =~ ^[0-9]+$ ]]; then
+      garth_log_error "GitHub App installation id is invalid: '$installation_id'"
+      garth_log_error "Ref ${GARTH_GITHUB_APP_INSTALLATION_ID_REF} must resolve to a numeric installation id."
+      return 1
+    fi
+  fi
+
+  GARTH_GITHUB_APP_APP_ID_OVERRIDE="$app_id"
+  GARTH_GITHUB_APP_PRIVATE_KEY_FILE_OVERRIDE="$key_file"
+  export GARTH_GITHUB_APP_APP_ID_OVERRIDE GARTH_GITHUB_APP_PRIVATE_KEY_FILE_OVERRIDE
+  if [[ -n "$installation_id" ]]; then
+    GARTH_GITHUB_APP_INSTALLATION_ID_OVERRIDE="$installation_id"
+    export GARTH_GITHUB_APP_INSTALLATION_ID_OVERRIDE
+  else
+    unset GARTH_GITHUB_APP_INSTALLATION_ID_OVERRIDE
+  fi
+}
+
 garth_github_validate_app_jwt() {
   local app_jwt="$1"
   local expected_app_id="$2"
@@ -215,6 +267,10 @@ garth_github_resolve_installation_id() {
 
   case "$strategy" in
     single)
+      if [[ -n "${GARTH_GITHUB_APP_INSTALLATION_ID_OVERRIDE:-}" ]]; then
+        printf '%s' "$GARTH_GITHUB_APP_INSTALLATION_ID_OVERRIDE"
+        return 0
+      fi
       if [[ -z "$GARTH_GITHUB_APP_INSTALLATION_ID_REF" ]]; then
         garth_die "github_app.installation_id_ref is required for strategy=single" 1
       fi
@@ -247,7 +303,11 @@ garth_github_mint_installation_token() {
   local owner_repo="$1"
 
   local app_id
-  app_id=$(garth_secret_read "$GARTH_GITHUB_APP_APP_ID_REF") || return 1
+  if [[ -n "${GARTH_GITHUB_APP_APP_ID_OVERRIDE:-}" ]]; then
+    app_id="$GARTH_GITHUB_APP_APP_ID_OVERRIDE"
+  else
+    app_id=$(garth_secret_read "$GARTH_GITHUB_APP_APP_ID_REF") || return 1
+  fi
   app_id=$(garth_trim_whitespace "$app_id")
   [[ -n "$app_id" ]] || return 1
   if [[ ! "$app_id" =~ ^[0-9]+$ ]]; then
@@ -257,12 +317,20 @@ garth_github_mint_installation_token() {
   fi
 
   local key_file
-  key_file=$(mktemp "${TMPDIR:-/tmp}/garth-app-key.XXXXXX") || return 1
-  garth_register_cleanup_path "$key_file"
-  garth_secret_write_file "$GARTH_GITHUB_APP_PRIVATE_KEY_REF" "$key_file" || return 1
-  if ! garth_github_private_key_valid "$key_file"; then
-    # Common pattern: PEM stored as a single escaped string with "\n".
-    garth_github_normalize_private_key_file "$key_file"
+  if [[ -n "${GARTH_GITHUB_APP_PRIVATE_KEY_FILE_OVERRIDE:-}" ]]; then
+    key_file="$GARTH_GITHUB_APP_PRIVATE_KEY_FILE_OVERRIDE"
+    if [[ ! -f "$key_file" ]]; then
+      garth_log_error "GitHub App private key override file not found: $key_file"
+      return 1
+    fi
+  else
+    key_file=$(mktemp "${TMPDIR:-/tmp}/garth-app-key.XXXXXX") || return 1
+    garth_register_cleanup_path "$key_file"
+    garth_secret_write_file "$GARTH_GITHUB_APP_PRIVATE_KEY_REF" "$key_file" || return 1
+    if ! garth_github_private_key_valid "$key_file"; then
+      # Common pattern: PEM stored as a single escaped string with "\n".
+      garth_github_normalize_private_key_file "$key_file"
+    fi
   fi
   if ! garth_github_private_key_valid "$key_file"; then
     garth_log_error "GitHub App private key is invalid."

@@ -4,7 +4,7 @@
 
 > One command to launch a full dev environment per task. MIT licensed.
 
-![logo](logo.png)
+![Garth Logo](logo.png)
 
 `garth` is a workspace orchestrator for autonomous coding agents. One command
 gives you a git branch, worktree, Docker-sandboxed agents, and a Zellij terminal
@@ -256,9 +256,9 @@ Default config file:
 Key sections:
 
 - `[defaults]`: selected agents, sandbox mode, network mode,
-  workspace target, safety mode,
+  workspace target, safety mode, terminal launcher mode,
   optional `auth_passthrough`
-- `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior
+- `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior, optional background GitHub App secret caching
 - `[github_app]`: 1Password refs and installation selection strategy
 - `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
 - `[features]`: optional packages and host mounts for agent images
@@ -273,6 +273,13 @@ Chrome note:
 - set `chrome.profile_directory` (for example `"Default"`) to pin a specific
   Chrome profile when opening a new window
 
+Terminal launcher note:
+
+- set `defaults.terminal_launcher = "current_shell"` to disable macOS app
+  launching (`Ghostty`/`Terminal`) for zellij attach/start and run in your
+  current shell instead
+- valid values: `auto`, `current_shell`, `ghostty`, `ghostty_app`, `terminal`
+
 Feature notes:
 
 - set `features.packages` to install optional tools in image builds
@@ -283,6 +290,17 @@ Feature notes:
   and optional `mode` (`ro|rw`)
 - mounting toolchain can help when command/rule files in `~/.claude`/`~/.codex`
   are symlinks into your toolchain repo
+
+Token refresh note:
+
+- set `token_refresh.cache_github_app_secrets = true` (opt-in) to read GitHub
+  App secrets once when the background refresher starts and reuse them for later
+  token mints, avoiding repeated 1Password prompts during the day
+- set `token_refresh.background_auto_signin = false` (opt-in) to prevent
+  background refresh from auto-running `op signin`; this avoids popup
+  interruptions but can leave sessions degraded until you re-auth manually
+- security tradeoff: this keeps GitHub App secret material resident in the
+  refresher process for the lifetime of that session
 
 ## Usage
 
@@ -459,8 +477,9 @@ garth doctor --repo . --deep
   - read-only overlays for sensitive repo paths (`.git/hooks`, `.git/config`, `.github`, `.gitmodules`)
 - Session events are written to `$XDG_STATE_HOME/garth/sessions/<session>/audit.log` (JSONL, `0600`) with secret redaction.
 
-For implementation details (module-level security functions, seccomp profile
-usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
+For detailed security architecture, controls, and tradeoff guidance, see
+[`docs/security-model.md`](docs/security-model.md). For module-level
+implementation details, see [`AGENTS.md`](AGENTS.md#security-model).
 
 ## Platform Notes
 
@@ -480,6 +499,13 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
 - `garth keeps prompting for 1Password`: check token cache reuse with
   `garth token . --machine`; if the token is near expiry, a fresh `op` auth is
   expected
+- `I only want to authenticate once per workspace`: opt into
+  `token_refresh.cache_github_app_secrets = true` in `config.toml`
+- `I never want background auth popups`: set
+  `token_refresh.background_auto_signin = false` in `config.toml`
+- `Ghostty would like to access data from other apps`: set
+  `defaults.terminal_launcher = "current_shell"` to avoid macOS app-launch
+  permission prompts from Ghostty/Terminal automation
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
