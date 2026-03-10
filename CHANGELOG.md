@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.2.1] - Unreleased
+## [0.3.0] - Unreleased
 
 ### Added
 
@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `garth stop --clean` flag to remove session state after stopping, preventing
   stale state accumulation without requiring a full `garth down`
 - `garth doctor` now warns when `claude_share` auth mount mode is set to `rw`
+- `docs/security-model.md`: a dedicated security reference covering trust
+  boundaries, container hardening, credential handling, configuration controls,
+  and tradeoffs
+- New smoke tests for security/auth edge cases:
+  `tests/token_cache_lock_smoke.sh`, `tests/github_app_override_smoke.sh`,
+  `tests/zellij_launcher_smoke.sh`, and
+  `tests/secrets_auto_signin_guard_smoke.sh`
 
 ### Fixed
 
@@ -55,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   directory-based branch open is now explicit via `-d/--dir`
 - Documentation now includes Docker refresh command usage and troubleshooting
   guidance
+- Added `defaults.terminal_launcher` config (`auto`, `current_shell`,
+  `ghostty`, `ghostty_app`, `terminal`) to control zellij launch behavior on
+  macOS and reduce host app permission prompt friction
+- README now links to the dedicated security model documentation and includes
+  explicit guidance for auth-refresh popup mitigation settings
 
 ### Security
 
@@ -64,6 +76,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ([#29661](https://github.com/anthropics/claude-code/issues/29661))
 - `claude_dot_claude`, `claude_config`, `claude_state`, and `claude_cache`
   remain `rw` (Claude writes auth/config data there; `ro` causes `EROFS`)
+- Token minting now uses a per-repository cache lock to prevent multi-workspace
+  concurrent refresh stampedes (which previously caused repeated 1Password
+  prompts)
+- Added `token_refresh.cache_github_app_secrets` (opt-in) to preload GitHub App
+  credentials for refresher reuse and reduce mid-session secret reads
+- Added `token_refresh.background_auto_signin` (opt-in, defaults `true`) to
+  disable background `op signin` attempts when desired, eliminating unattended
+  popup loops at the cost of possible degraded refresh state until manual
+  re-auth
 
 ## [0.1.0] - 2026-03-04
 
@@ -75,6 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[0.3.0]: https://github.com/ealt/garth/releases/tag/v0.3.0
+[0.2.2]: https://github.com/ealt/garth/releases/tag/v0.2.2
 [0.2.1]: https://github.com/ealt/garth/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ealt/garth/releases/tag/v0.2.0
 [0.1.1]: https://github.com/ealt/garth/releases/tag/v0.1.1
