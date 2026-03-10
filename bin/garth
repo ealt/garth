@@ -199,6 +199,92 @@ token_cache_file_for_owner_repo() {
   echo "$(token_cache_dir)/${key}.tsv"
 }
 
+token_cache_lock_dir_for_owner_repo() {
+  local owner_repo="$1"
+  local key
+  key=$(echo "$owner_repo" | sed -E 's/[^A-Za-z0-9._-]+/_/g')
+  echo "$(token_cache_dir)/${key}.lock"
+}
+
+token_cache_lock_age_seconds() {
+  local path="$1"
+  garth_python - << 'PY' "$path"
+import os
+import sys
+import time
+
+target = sys.argv[1]
+print(max(0, int(time.time() - os.stat(target).st_mtime)))
+PY
+}
+
+garth_acquire_token_cache_lock() {
+  local owner_repo="$1"
+  local wait_seconds="${2:-120}"
+  local stale_seconds="${3:-300}"
+  local cache_dir lock_dir
+  local start_epoch now elapsed age
+  local owner_file lock_pid lock_started
+
+  cache_dir=$(token_cache_dir)
+  mkdir -p "$cache_dir"
+  chmod 700 "$cache_dir" 2>/dev/null || true
+  lock_dir=$(token_cache_lock_dir_for_owner_repo "$owner_repo")
+  start_epoch=$(garth_now_epoch)
+
+  while true; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      owner_file="$lock_dir/owner"
+      umask 077
+      printf '%s\t%s\n' "$$" "$(garth_now_epoch)" > "$owner_file"
+      chmod 600 "$owner_file" 2>/dev/null || true
+      printf '%s\n' "$lock_dir"
+      return 0
+    fi
+
+    if [[ -d "$lock_dir" ]]; then
+      owner_file="$lock_dir/owner"
+      lock_pid=""
+      lock_started=""
+      if [[ -f "$owner_file" ]]; then
+        IFS=$'\t' read -r lock_pid lock_started < "$owner_file" || true
+      fi
+
+      if [[ -n "$lock_pid" && "$lock_pid" =~ ^[0-9]+$ ]]; then
+        if ! kill -0 "$lock_pid" 2>/dev/null; then
+          rm -rf "$lock_dir" 2>/dev/null || true
+          continue
+        fi
+      elif [[ -n "$lock_started" && "$lock_started" =~ ^[0-9]+$ ]]; then
+        now=$(garth_now_epoch)
+        if ((now - lock_started >= stale_seconds)); then
+          rm -rf "$lock_dir" 2>/dev/null || true
+          continue
+        fi
+      else
+        age=$(token_cache_lock_age_seconds "$lock_dir" 2>/dev/null || echo 0)
+        if [[ "$age" =~ ^[0-9]+$ ]] && ((age >= stale_seconds)); then
+          rm -rf "$lock_dir" 2>/dev/null || true
+          continue
+        fi
+      fi
+    fi
+
+    now=$(garth_now_epoch)
+    elapsed=$((now - start_epoch))
+    if ((elapsed >= wait_seconds)); then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+garth_release_token_cache_lock() {
+  local lock_dir="$1"
+  [[ -n "$lock_dir" ]] || return 0
+  rm -rf "$lock_dir" 2>/dev/null || true
+}
+
 garth_read_cached_token_for_owner_repo() {
   local owner_repo="$1"
   local cache_file
@@ -266,20 +352,51 @@ mint_token_for_repo() {
     return 0
   fi
 
+  # Coordinate per-repo minting across sessions to avoid duplicated secret reads.
+  local lock_wait_seconds lock_stale_seconds lock_dir
+  lock_wait_seconds="${GARTH_TOKEN_CACHE_LOCK_WAIT_SECONDS:-120}"
+  lock_stale_seconds="${GARTH_TOKEN_CACHE_LOCK_STALE_SECONDS:-300}"
+  [[ "$lock_wait_seconds" =~ ^[0-9]+$ ]] || lock_wait_seconds=120
+  [[ "$lock_stale_seconds" =~ ^[0-9]+$ ]] || lock_stale_seconds=300
+
+  if ! lock_dir=$(garth_acquire_token_cache_lock "$owner_repo" "$lock_wait_seconds" "$lock_stale_seconds"); then
+    if cached=$(garth_read_cached_token_for_owner_repo "$owner_repo" 2>/dev/null); then
+      printf '%s\n' "$cached"
+      return 0
+    fi
+    garth_die "Timed out waiting for token mint lock for ${owner_repo}. Try again shortly." 3
+  fi
+
+  # Another process may have refreshed while we waited; re-check inside lock.
+  if cached=$(garth_read_cached_token_for_owner_repo "$owner_repo" 2>/dev/null); then
+    garth_release_token_cache_lock "$lock_dir"
+    printf '%s\n' "$cached"
+    return 0
+  fi
+
   # Ensure interactive signin (when needed) happens in the parent shell.
   garth_require_op
 
   local minted
-  minted=$(garth_github_mint_installation_token "$owner_repo") || \
+  if ! minted=$(garth_github_mint_installation_token "$owner_repo"); then
+    garth_release_token_cache_lock "$lock_dir"
     garth_die "Failed to mint GitHub token. Check 1Password sign-in and GitHub App config." 3
+  fi
 
   local token expires_at installation_id
   IFS=$'\t' read -r token expires_at installation_id <<< "$minted"
-  [[ -n "$token" && -n "$expires_at" ]] || garth_die "Failed to mint GitHub token" 3
+  if [[ -z "$token" || -z "$expires_at" ]]; then
+    garth_release_token_cache_lock "$lock_dir"
+    garth_die "Failed to mint GitHub token" 3
+  fi
 
   local expires_epoch
-  expires_epoch=$(garth_iso8601_to_epoch "$expires_at")
+  if ! expires_epoch=$(garth_iso8601_to_epoch "$expires_at"); then
+    garth_release_token_cache_lock "$lock_dir"
+    garth_die "Failed to parse GitHub token expiry timestamp" 3
+  fi
   garth_write_cached_token_for_owner_repo "$owner_repo" "$token" "$expires_at" "$expires_epoch" "$installation_id"
+  garth_release_token_cache_lock "$lock_dir"
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$token" "$expires_at" "$expires_epoch" "$installation_id" "$owner_repo"
 }

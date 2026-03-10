@@ -14,5 +14,6 @@ test:
 	bash tests/agent_smoke.sh
 	bash tests/refresh_images_smoke.sh
 	bash tests/github_context_url_smoke.sh
+	bash tests/token_cache_lock_smoke.sh
 
 check: lint test

@@ -54,6 +54,7 @@ development workflow. See also:
 - `bash tests/session_helpers_smoke.sh`
 - `bash tests/cli_open_smoke.sh`
 - `bash tests/refresh_images_smoke.sh`
+- `bash tests/token_cache_lock_smoke.sh`
 
 ### Syntax Checks
 
@@ -483,7 +484,8 @@ garth/
 │   ├── zellij_layout_smoke.sh         # Zellij layout smoke tests
 │   ├── session_helpers_smoke.sh       # Session state smoke tests
 │   ├── cli_open_smoke.sh              # CLI open command smoke tests
-│   └── refresh_images_smoke.sh        # Docker refresh command smoke tests
+│   ├── refresh_images_smoke.sh        # Docker refresh command smoke tests
+│   └── token_cache_lock_smoke.sh      # Concurrent token-mint lock smoke test
 ├── docs/
 │   └── github-app-setup.md            # GitHub App wiring guide
 ├── templates/
