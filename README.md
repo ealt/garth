@@ -477,8 +477,9 @@ garth doctor --repo . --deep
   - read-only overlays for sensitive repo paths (`.git/hooks`, `.git/config`, `.github`, `.gitmodules`)
 - Session events are written to `$XDG_STATE_HOME/garth/sessions/<session>/audit.log` (JSONL, `0600`) with secret redaction.
 
-For implementation details (module-level security functions, seccomp profile
-usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
+For detailed security architecture, controls, and tradeoff guidance, see
+[`docs/security-model.md`](docs/security-model.md). For module-level
+implementation details, see [`AGENTS.md`](AGENTS.md#security-model).
 
 ## Platform Notes
 

@@ -493,6 +493,7 @@ garth/
 │   ├── refresh_images_smoke.sh        # Docker refresh command smoke tests
 │   └── token_cache_lock_smoke.sh      # Concurrent token-mint lock smoke test
 ├── docs/
+│   ├── security-model.md              # Security model, controls, and tradeoffs
 │   └── github-app-setup.md            # GitHub App wiring guide
 ├── templates/
 │   └── aerospace.example.toml         # AeroSpace config template
