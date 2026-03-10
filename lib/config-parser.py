@@ -45,6 +45,7 @@ ALLOWED_DEFAULTS = {
     "docker_image_prefix",
     "auth_passthrough",
     "default_branch",
+    "terminal_launcher",
 }
 ALLOWED_TOKEN_REFRESH = {
     "enabled",
@@ -148,6 +149,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "docker_image_prefix": defaults_raw.get("docker_image_prefix", "garth"),
         "auth_passthrough": defaults_raw.get("auth_passthrough", []),
         "default_branch": defaults_raw.get("default_branch", ""),
+        "terminal_launcher": defaults_raw.get("terminal_launcher", "auto"),
     }
 
     if not isinstance(defaults["agents"], list) or not defaults["agents"]:
@@ -165,6 +167,10 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error("defaults.workspace must be a string (for example: auto, 3)")
     if defaults["safety_mode"] not in {"safe", "permissive"}:
         out.error("defaults.safety_mode must be one of: safe, permissive")
+    if defaults["terminal_launcher"] not in {"auto", "current_shell", "ghostty", "ghostty_app", "terminal"}:
+        out.error(
+            "defaults.terminal_launcher must be one of: auto, current_shell, ghostty, ghostty_app, terminal"
+        )
 
     if not isinstance(defaults["docker_image_prefix"], str) or not defaults["docker_image_prefix"]:
         out.error("defaults.docker_image_prefix must be a non-empty string")
@@ -468,6 +474,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_DEFAULTS_DOCKER_IMAGE_PREFIX", defaults["docker_image_prefix"])
     put("GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV", ",".join(defaults["auth_passthrough"]))
     put("GARTH_DEFAULTS_DEFAULT_BRANCH", defaults["default_branch"])
+    put("GARTH_DEFAULTS_TERMINAL_LAUNCHER", defaults["terminal_launcher"])
 
     put("GARTH_TOKEN_REFRESH_ENABLED", token["enabled"])
     put("GARTH_TOKEN_REFRESH_LEAD_TIME", token["lead_time"])

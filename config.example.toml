@@ -7,6 +7,9 @@ safety_mode = "safe"
 docker_image_prefix = "garth"
 auth_passthrough = []
 default_branch = "main"
+# macOS launcher preference for opening zellij:
+# auto | current_shell | ghostty | ghostty_app | terminal
+terminal_launcher = "auto"
 
 [token_refresh]
 enabled = true

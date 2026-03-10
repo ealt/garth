@@ -5,6 +5,7 @@ if [[ -n "${GARTH_ZELLIJ_SH_LOADED:-}" ]]; then
 fi
 GARTH_ZELLIJ_SH_LOADED=1
 : "${GARTH_ZELLIJ_LAUNCH_ASYNC:=false}"
+: "${GARTH_ZELLIJ_TERMINAL_LAUNCHER:=}"
 
 garth_kdl_escape() {
   local value="$1"
@@ -77,6 +78,63 @@ garth_zellij_launcher_script() {
   # Check existence explicitly so we create the session on first launch.
   printf 'if %s | awk %q | grep -Fxq %q; then %s || %s || %s; else %s || %s; fi' \
     "$list_cmd" "$awk_program" "$session" "$attach_cmd" "$create_cmd" "$attach_cmd" "$create_cmd" "$attach_cmd"
+}
+
+garth_zellij_terminal_launcher() {
+  local configured="${GARTH_ZELLIJ_TERMINAL_LAUNCHER:-${GARTH_DEFAULTS_TERMINAL_LAUNCHER:-auto}}"
+  case "$configured" in
+    auto|current_shell|ghostty|ghostty_app|terminal)
+      printf '%s' "$configured"
+      ;;
+    *)
+      garth_log_warn "Unknown terminal launcher '$configured'; falling back to auto"
+      printf 'auto'
+      ;;
+  esac
+}
+
+garth_zellij_set_async_if_running() {
+  local session="$1"
+  local pre_state="$2"
+  if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
+    GARTH_ZELLIJ_LAUNCH_ASYNC=true
+    return 0
+  fi
+  return 1
+}
+
+garth_zellij_try_launch_ghostty_bin() {
+  local session="$1"
+  local pre_state="$2"
+  local launch_script="$3"
+  ghostty -e /bin/bash -lc "$launch_script" >/dev/null 2>&1 &
+  garth_zellij_set_async_if_running "$session" "$pre_state"
+}
+
+garth_zellij_try_launch_ghostty_app() {
+  local session="$1"
+  local pre_state="$2"
+  local launch_script="$3"
+  if open -na "Ghostty" --args -e /bin/bash -lc "$launch_script" >/dev/null 2>&1; then
+    garth_zellij_set_async_if_running "$session" "$pre_state"
+    return $?
+  fi
+  return 1
+}
+
+garth_zellij_try_launch_terminal_app() {
+  local session="$1"
+  local pre_state="$2"
+  local launch_script="$3"
+  local script_cmd
+  printf -v script_cmd '%q -lc %q' "/bin/bash" "$launch_script"
+  if osascript \
+    -e "tell application \"Terminal\" to do script \"$script_cmd\"" \
+    -e "tell application \"Terminal\" to activate" >/dev/null 2>&1; then
+    garth_zellij_set_async_if_running "$session" "$pre_state"
+    return $?
+  fi
+  return 1
 }
 
 # Args:
@@ -161,6 +219,7 @@ garth_zellij_launch() {
   local launch_script
   local -a zellij_args=()
   local pre_state
+  local launcher
   GARTH_ZELLIJ_LAUNCH_ASYNC=false
   zellij_bin=$(command -v zellij 2>/dev/null || true)
   pre_state="$(garth_zellij_session_state "$session")"
@@ -178,15 +237,44 @@ garth_zellij_launch() {
       launch_script="zellij attach $session || zellij -s $session --new-session-with-layout $layout_file || zellij attach $session"
     fi
     if garth_is_macos; then
-      if command -v ghostty >/dev/null 2>&1; then
-        echo "[dry-run] ghostty -e /bin/bash -lc '$launch_script'"
-      elif [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
-        echo "[dry-run] open -na Ghostty --args -e /bin/bash -lc '$launch_script'"
-      elif command -v osascript >/dev/null 2>&1; then
-        echo "[dry-run] osascript Terminal -> /bin/bash -lc '$launch_script'"
-      else
-        echo "[dry-run] (no terminal launcher found; zellij will run in current shell)"
-      fi
+      launcher="$(garth_zellij_terminal_launcher)"
+      case "$launcher" in
+        current_shell)
+          echo "[dry-run] (terminal launcher disabled; zellij will run in current shell)"
+          ;;
+        ghostty)
+          if command -v ghostty >/dev/null 2>&1; then
+            echo "[dry-run] ghostty -e /bin/bash -lc '$launch_script'"
+          else
+            echo "[dry-run] ghostty not found; zellij will run in current shell"
+          fi
+          ;;
+        ghostty_app)
+          if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+            echo "[dry-run] open -na Ghostty --args -e /bin/bash -lc '$launch_script'"
+          else
+            echo "[dry-run] Ghostty.app launcher unavailable; zellij will run in current shell"
+          fi
+          ;;
+        terminal)
+          if command -v osascript >/dev/null 2>&1; then
+            echo "[dry-run] osascript Terminal -> /bin/bash -lc '$launch_script'"
+          else
+            echo "[dry-run] Terminal launcher unavailable; zellij will run in current shell"
+          fi
+          ;;
+        auto)
+          if command -v ghostty >/dev/null 2>&1; then
+            echo "[dry-run] ghostty -e /bin/bash -lc '$launch_script'"
+          elif [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+            echo "[dry-run] open -na Ghostty --args -e /bin/bash -lc '$launch_script'"
+          elif command -v osascript >/dev/null 2>&1; then
+            echo "[dry-run] osascript Terminal -> /bin/bash -lc '$launch_script'"
+          else
+            echo "[dry-run] (no terminal launcher found; zellij will run in current shell)"
+          fi
+          ;;
+      esac
     fi
     return 0
   fi
@@ -200,37 +288,61 @@ garth_zellij_launch() {
   fi
 
   if garth_is_macos; then
-    if command -v ghostty >/dev/null 2>&1; then
-      ghostty -e /bin/bash -lc "$launch_script" >/dev/null 2>&1 &
-      if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
-        GARTH_ZELLIJ_LAUNCH_ASYNC=true
-        return 0
-      fi
-      garth_log_warn "Ghostty launch did not reach running session state; trying fallback launcher"
-    elif [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
-      if open -na "Ghostty" --args -e /bin/bash -lc "$launch_script" >/dev/null 2>&1; then
-        if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
-          GARTH_ZELLIJ_LAUNCH_ASYNC=true
-          return 0
+    launcher="$(garth_zellij_terminal_launcher)"
+    case "$launcher" in
+      current_shell)
+        ;;
+      ghostty)
+        if command -v ghostty >/dev/null 2>&1; then
+          if garth_zellij_try_launch_ghostty_bin "$session" "$pre_state" "$launch_script"; then
+            return 0
+          fi
+          garth_log_warn "Ghostty launch did not reach running session state; falling back to current shell"
+        else
+          garth_log_warn "ghostty not found; falling back to current shell"
         fi
-        garth_log_warn "Ghostty.app launch did not reach running session state; trying fallback launcher"
-      fi
-    fi
-    if command -v osascript >/dev/null 2>&1; then
-      local script_cmd
-      printf -v script_cmd '%q -lc %q' "/bin/bash" "$launch_script"
-      if osascript \
-        -e "tell application \"Terminal\" to do script \"$script_cmd\"" \
-        -e "tell application \"Terminal\" to activate" >/dev/null 2>&1; then
-        if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 25; then
-          GARTH_ZELLIJ_LAUNCH_ASYNC=true
-          return 0
+        ;;
+      ghostty_app)
+        if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+          if garth_zellij_try_launch_ghostty_app "$session" "$pre_state" "$launch_script"; then
+            return 0
+          fi
+          garth_log_warn "Ghostty.app launch did not reach running session state; falling back to current shell"
+        else
+          garth_log_warn "Ghostty.app launcher unavailable; falling back to current shell"
         fi
-        garth_log_warn "Terminal launch did not reach running session state; falling back to current shell"
-      else
-        garth_log_warn "Failed to open Terminal for zellij; falling back to current shell"
-      fi
-    fi
+        ;;
+      terminal)
+        if command -v osascript >/dev/null 2>&1; then
+          if garth_zellij_try_launch_terminal_app "$session" "$pre_state" "$launch_script"; then
+            return 0
+          fi
+          garth_log_warn "Terminal launch did not reach running session state; falling back to current shell"
+        else
+          garth_log_warn "Terminal launcher unavailable; falling back to current shell"
+        fi
+        ;;
+      auto)
+        if command -v ghostty >/dev/null 2>&1; then
+          if garth_zellij_try_launch_ghostty_bin "$session" "$pre_state" "$launch_script"; then
+            return 0
+          fi
+          garth_log_warn "Ghostty launch did not reach running session state; trying fallback launcher"
+        fi
+        if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+          if garth_zellij_try_launch_ghostty_app "$session" "$pre_state" "$launch_script"; then
+            return 0
+          fi
+          garth_log_warn "Ghostty.app launch did not reach running session state; trying fallback launcher"
+        fi
+        if command -v osascript >/dev/null 2>&1; then
+          if garth_zellij_try_launch_terminal_app "$session" "$pre_state" "$launch_script"; then
+            return 0
+          fi
+          garth_log_warn "Terminal launch did not reach running session state; falling back to current shell"
+        fi
+        ;;
+    esac
   fi
   bash -lc "$launch_script"
 }

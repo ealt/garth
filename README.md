@@ -256,7 +256,7 @@ Default config file:
 Key sections:
 
 - `[defaults]`: selected agents, sandbox mode, network mode,
-  workspace target, safety mode,
+  workspace target, safety mode, terminal launcher mode,
   optional `auth_passthrough`
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior, optional background GitHub App secret caching
 - `[github_app]`: 1Password refs and installation selection strategy
@@ -272,6 +272,13 @@ Chrome note:
 - set `chrome.profiles_dir = ""` to open URLs in your default signed-in profile
 - set `chrome.profile_directory` (for example `"Default"`) to pin a specific
   Chrome profile when opening a new window
+
+Terminal launcher note:
+
+- set `defaults.terminal_launcher = "current_shell"` to disable macOS app
+  launching (`Ghostty`/`Terminal`) for zellij attach/start and run in your
+  current shell instead
+- valid values: `auto`, `current_shell`, `ghostty`, `ghostty_app`, `terminal`
 
 Feature notes:
 
@@ -490,6 +497,9 @@ usage, auth mount modes), see [`AGENTS.md`](AGENTS.md#security-model).
   expected
 - `I only want to authenticate once per workspace`: opt into
   `token_refresh.cache_github_app_secrets = true` in `config.toml`
+- `Ghostty would like to access data from other apps`: set
+  `defaults.terminal_launcher = "current_shell"` to avoid macOS app-launch
+  permission prompts from Ghostty/Terminal automation
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
