@@ -4,6 +4,8 @@
 
 > One command to launch a full dev environment per task. MIT licensed.
 
+![logo](logo.png)
+
 `garth` is a workspace orchestrator for autonomous coding agents. One command
 gives you a git branch, worktree, Docker-sandboxed agents, and a Zellij terminal
 session — all wired together and ready to go. Run multiple tasks across multiple
