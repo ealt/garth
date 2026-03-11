@@ -44,13 +44,14 @@ jobs:
 
       - name: Dispatch update to homebrew-tap
         env:
-          DISPATCH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          # Fine-grained PAT for ealt/homebrew-tap with Contents: Read and write.
+          DISPATCH_TOKEN: ${{ secrets.HOMEBREW_TAP_FINE_GRAINED_PAT }}
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         run: |
           set -euo pipefail
 
           if [[ -z "${DISPATCH_TOKEN}" ]]; then
-            echo "Missing HOMEBREW_TAP_DISPATCH_TOKEN secret." >&2
+            echo "Missing HOMEBREW_TAP_FINE_GRAINED_PAT secret for ealt/homebrew-tap." >&2
             exit 1
           fi
 
