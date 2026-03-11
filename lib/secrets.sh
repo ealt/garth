@@ -11,6 +11,34 @@ garth_op_auto_signin_enabled() {
   [[ "${GARTH_OP_AUTO_SIGNIN:-true}" == "true" ]]
 }
 
+# Resolve the 1Password account shorthand from op account list.
+# Used for non-TTY signin where --account is required.
+garth_op_resolve_account() {
+  local account=""
+  account=$(op account list --format json 2>/dev/null | \
+    garth_python -c "import json,sys;a=json.load(sys.stdin);print(a[0]['url'].split('.')[0] if a else '')" 2>/dev/null) || true
+  [[ -n "$account" ]] && printf '%s' "$account"
+}
+
+# Attempt op signin, using --account in non-TTY contexts where bare
+# "op signin" silently no-ops.
+garth_op_try_signin() {
+  if ! garth_op_auto_signin_enabled; then
+    return 1
+  fi
+  if [[ -t 0 || -t 1 || -t 2 ]]; then
+    eval "$(op signin)" && op whoami >/dev/null 2>&1 && return 0
+    return 1
+  fi
+  # Non-TTY: bare "op signin" silently no-ops; use --account to trigger
+  # system-auth (biometric) through the 1Password daemon instead.
+  local account
+  account=$(garth_op_resolve_account) || return 1
+  [[ -n "$account" ]] || return 1
+  op signin --account "$account" >/dev/null 2>&1 && op whoami >/dev/null 2>&1 && return 0
+  return 1
+}
+
 garth_require_op() {
   if [[ "$GARTH_OP_SESSION_READY" == "true" ]]; then
     return 0
@@ -21,22 +49,17 @@ garth_require_op() {
     export GARTH_OP_SESSION_READY
     return 0
   fi
-  if ! op whoami >/dev/null 2>&1; then
-    if garth_op_auto_signin_enabled && [[ -t 0 || -t 1 || -t 2 ]]; then
-      garth_log_info "1Password CLI is not signed in; running 'eval \"\$(op signin)\"'" >&2
-      if eval "$(op signin)" && op whoami >/dev/null 2>&1; then
-        GARTH_OP_SESSION_READY=true
-        export GARTH_OP_SESSION_READY
-        garth_log_success "1Password CLI sign-in complete" >&2
-        return 0
-      fi
-      garth_die "1Password CLI sign-in failed. Run: eval \"\$(op signin)\"" 2
-    fi
-    if ! garth_op_auto_signin_enabled; then
-      garth_die "1Password CLI is not signed in and auto sign-in is disabled. Run: eval \"\$(op signin)\"" 2
-    fi
-    garth_die "1Password CLI is not signed in. Run: eval \"\$(op signin)\"" 2
+  garth_log_info "1Password CLI is not signed in; attempting sign-in" >&2
+  if garth_op_try_signin; then
+    GARTH_OP_SESSION_READY=true
+    export GARTH_OP_SESSION_READY
+    garth_log_success "1Password CLI sign-in complete" >&2
+    return 0
   fi
+  if ! garth_op_auto_signin_enabled; then
+    garth_die "1Password CLI is not signed in and auto sign-in is disabled. Run: eval \"\$(op signin)\"" 2
+  fi
+  garth_die "1Password CLI is not signed in. Run: eval \"\$(op signin)\"" 2
 }
 
 garth_secret_read() {
@@ -53,11 +76,11 @@ garth_secret_read() {
     return 0
   fi
 
-  if grep -qi "not currently signed in" "$err_file" && garth_op_auto_signin_enabled && [[ -t 0 || -t 1 || -t 2 ]]; then
+  if grep -qi "not currently signed in" "$err_file" && garth_op_auto_signin_enabled; then
     GARTH_OP_SESSION_READY=false
     export GARTH_OP_SESSION_READY
-    garth_log_info "1Password session refresh required; running 'eval \"\$(op signin)\"'" >&2
-    if eval "$(op signin)" >/dev/null 2>&1 && value=$(op read "$ref" 2>/dev/null); then
+    garth_log_info "1Password session refresh required; attempting sign-in" >&2
+    if garth_op_try_signin && value=$(op read "$ref" 2>/dev/null); then
       GARTH_OP_SESSION_READY=true
       export GARTH_OP_SESSION_READY
       garth_log_success "1Password CLI session refresh complete" >&2
@@ -85,11 +108,11 @@ garth_ensure_secret_access() {
     return 0
   fi
 
-  if grep -qi "not currently signed in" "$err_file" && garth_op_auto_signin_enabled && [[ -t 0 || -t 1 || -t 2 ]]; then
+  if grep -qi "not currently signed in" "$err_file" && garth_op_auto_signin_enabled; then
     GARTH_OP_SESSION_READY=false
     export GARTH_OP_SESSION_READY
-    garth_log_info "1Password session refresh required; running 'eval \"\$(op signin)\"'" >&2
-    if eval "$(op signin)" >/dev/null 2>&1 && op read "$probe_ref" >/dev/null 2>&1; then
+    garth_log_info "1Password session refresh required; attempting sign-in" >&2
+    if garth_op_try_signin && op read "$probe_ref" >/dev/null 2>&1; then
       GARTH_OP_SESSION_READY=true
       export GARTH_OP_SESSION_READY
       garth_log_success "1Password CLI session refresh complete" >&2

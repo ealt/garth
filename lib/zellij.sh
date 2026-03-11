@@ -103,11 +103,16 @@ garth_zellij_set_async_if_running() {
   return 1
 }
 
+# Strip Zellij env vars so new terminal windows don't trigger nesting protection.
+garth_zellij_clean_env() {
+  env -u ZELLIJ -u ZELLIJ_SESSION_NAME -u ZELLIJ_PANE_ID "$@"
+}
+
 garth_zellij_try_launch_ghostty_bin() {
   local session="$1"
   local pre_state="$2"
   local launch_script="$3"
-  ghostty -e /bin/bash -lc "$launch_script" >/dev/null 2>&1 &
+  garth_zellij_clean_env ghostty -e /bin/bash -lc "$launch_script" >/dev/null 2>&1 &
   garth_zellij_set_async_if_running "$session" "$pre_state"
 }
 
@@ -115,7 +120,7 @@ garth_zellij_try_launch_ghostty_app() {
   local session="$1"
   local pre_state="$2"
   local launch_script="$3"
-  if open -na "Ghostty" --args -e /bin/bash -lc "$launch_script" >/dev/null 2>&1; then
+  if garth_zellij_clean_env open -na "Ghostty" --args -e /bin/bash -lc "$launch_script" >/dev/null 2>&1; then
     garth_zellij_set_async_if_running "$session" "$pre_state"
     return $?
   fi
@@ -128,7 +133,7 @@ garth_zellij_try_launch_terminal_app() {
   local launch_script="$3"
   local script_cmd
   printf -v script_cmd '%q -lc %q' "/bin/bash" "$launch_script"
-  if osascript \
+  if garth_zellij_clean_env osascript \
     -e "tell application \"Terminal\" to do script \"$script_cmd\"" \
     -e "tell application \"Terminal\" to activate" >/dev/null 2>&1; then
     garth_zellij_set_async_if_running "$session" "$pre_state"
@@ -344,7 +349,7 @@ garth_zellij_launch() {
         ;;
     esac
   fi
-  bash -lc "$launch_script"
+  garth_zellij_clean_env bash -lc "$launch_script"
 }
 
 garth_zellij_list_sessions() {

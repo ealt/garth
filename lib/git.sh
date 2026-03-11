@@ -109,11 +109,19 @@ garth_git_https_url_from_remote() {
 garth_git_session_name() {
   local repo_name="$1"
   local branch="$2"
+  local max_len="${3:-36}"
   local branch_slug
   branch_slug=$(garth_slugify_branch "$branch")
   local session="garth-${repo_name}-${branch_slug}"
-  # Keep names manageable for zellij/docker.
-  echo "${session:0:80}"
+  # Zellij 0.43+ limits session names; via Ghostty login wrapper the
+  # effective limit drops to ~36 characters.
+  if [[ ${#session} -le $max_len ]]; then
+    echo "$session"
+  else
+    local hash
+    hash=$(garth_hash_short "$session")
+    echo "${session:0:$((max_len - 7))}-${hash:0:6}"
+  fi
 }
 
 garth_hash_short() {

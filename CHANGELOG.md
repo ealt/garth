@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-03-10
+
+### Fixed
+
+- `op signin` now works in non-TTY contexts (e.g. Claude Code's Bash tool) by
+  using `op signin --account` to trigger system-auth through the 1Password
+  daemon instead of silently no-oping
+- Session names now capped at 36 characters (with hash suffix for uniqueness) to
+  comply with Zellij 0.43+ session name limits via Ghostty's login wrapper
+- Terminal launchers (Ghostty, Ghostty.app, Terminal.app) now strip `ZELLIJ`,
+  `ZELLIJ_SESSION_NAME`, and `ZELLIJ_PANE_ID` env vars before spawning, fixing
+  Zellij nesting protection blocking new sessions when garth is invoked from
+  inside an existing Zellij pane
+
 ## [0.3.0] - Unreleased
 
 ### Added
@@ -96,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[0.3.1]: https://github.com/ealt/garth/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ealt/garth/releases/tag/v0.3.0
 [0.2.2]: https://github.com/ealt/garth/releases/tag/v0.2.2
 [0.2.1]: https://github.com/ealt/garth/releases/tag/v0.2.1
