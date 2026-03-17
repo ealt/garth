@@ -6,6 +6,7 @@ fi
 GARTH_ZELLIJ_SH_LOADED=1
 : "${GARTH_ZELLIJ_LAUNCH_ASYNC:=false}"
 : "${GARTH_ZELLIJ_TERMINAL_LAUNCHER:=}"
+: "${GARTH_DEFAULTS_ZELLIJ_MOUSE_MODE:=disabled}"
 
 garth_kdl_escape() {
   local value="$1"
@@ -63,13 +64,54 @@ garth_zellij_wait_for_running() {
   return 1
 }
 
+garth_zellij_mouse_mode() {
+  local configured="${GARTH_ZELLIJ_MOUSE_MODE:-${GARTH_DEFAULTS_ZELLIJ_MOUSE_MODE:-disabled}}"
+  case "$configured" in
+    enabled|disabled)
+      printf '%s' "$configured"
+      ;;
+    *)
+      garth_log_warn "Unknown zellij mouse mode '$configured'; falling back to disabled"
+      printf 'disabled'
+      ;;
+  esac
+}
+
+garth_zellij_option_words() {
+  local mouse_mode
+  mouse_mode="$(garth_zellij_mouse_mode)"
+  if [[ "$mouse_mode" == "disabled" ]]; then
+    printf '%s\n' "options" "--disable-mouse-mode"
+  fi
+}
+
+garth_zellij_shell_quote_words() {
+  local rendered=""
+  local word quoted
+  for word in "$@"; do
+    printf -v quoted '%q' "$word"
+    if [[ -n "$rendered" ]]; then
+      rendered+=" "
+    fi
+    rendered+="$quoted"
+  done
+  printf '%s' "$rendered"
+}
+
 garth_zellij_launcher_script() {
   local zellij_bin="$1"
   local session="$2"
   local layout_file="$3"
-  local attach_cmd create_cmd list_cmd awk_program
-  printf -v attach_cmd '%q attach %q' "$zellij_bin" "$session"
-  printf -v create_cmd '%q -s %q --new-session-with-layout %q' "$zellij_bin" "$session" "$layout_file"
+  local attach_cmd create_cmd list_cmd awk_program option_word
+  local -a attach_args=("$zellij_bin" "attach" "$session")
+  local -a create_args=("$zellij_bin" "-s" "$session" "--new-session-with-layout" "$layout_file")
+  while IFS= read -r option_word; do
+    [[ -n "$option_word" ]] || continue
+    attach_args+=("$option_word")
+    create_args+=("$option_word")
+  done < <(garth_zellij_option_words)
+  attach_cmd="$(garth_zellij_shell_quote_words "${attach_args[@]}")"
+  create_cmd="$(garth_zellij_shell_quote_words "${create_args[@]}")"
   printf -v list_cmd '%q list-sessions -n 2>/dev/null' "$zellij_bin"
   # awk program — $1 must not expand
   # shellcheck disable=SC2016
@@ -225,6 +267,7 @@ garth_zellij_launch() {
   local -a zellij_args=()
   local pre_state
   local launcher
+  local option_word
   GARTH_ZELLIJ_LAUNCH_ASYNC=false
   zellij_bin=$(command -v zellij 2>/dev/null || true)
   pre_state="$(garth_zellij_session_state "$session")"
@@ -233,6 +276,10 @@ garth_zellij_launch() {
   else
     zellij_args=(-s "$session" --new-session-with-layout "$layout_file")
   fi
+  while IFS= read -r option_word; do
+    [[ -n "$option_word" ]] || continue
+    zellij_args+=("$option_word")
+  done < <(garth_zellij_option_words)
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
     if [[ -n "$zellij_bin" ]]; then
       echo "[dry-run] $zellij_bin ${zellij_args[*]}"

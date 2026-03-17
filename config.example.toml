@@ -10,6 +10,10 @@ default_branch = "main"
 # macOS launcher preference for opening zellij:
 # auto | current_shell | ghostty | ghostty_app | terminal
 terminal_launcher = "auto"
+# zellij mouse handling:
+# disabled forwards wheel scrolling to the host terminal instead of zellij
+# enabled keeps zellij pane-click and wheel handling
+zellij_mouse_mode = "disabled"
 
 [token_refresh]
 enabled = true

@@ -10,6 +10,7 @@ ENV_OUT=$("$GARTH_ROOT/lib/config-parser.py" env "$GARTH_ROOT/config.example.tom
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_SAFETY_MODE='
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_DEFAULT_BRANCH='
 echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_TERMINAL_LAUNCHER='
+echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_ZELLIJ_MOUSE_MODE='
 echo "$ENV_OUT" | grep -q '^GARTH_AGENT_CLAUDE_BASE_COMMAND='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_PROTECTED_PATHS_JSON='
 echo "$ENV_OUT" | grep -q '^GARTH_SECURITY_SECCOMP_PROFILE='

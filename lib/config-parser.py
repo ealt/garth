@@ -46,6 +46,7 @@ ALLOWED_DEFAULTS = {
     "auth_passthrough",
     "default_branch",
     "terminal_launcher",
+    "zellij_mouse_mode",
 }
 ALLOWED_TOKEN_REFRESH = {
     "enabled",
@@ -151,6 +152,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         "auth_passthrough": defaults_raw.get("auth_passthrough", []),
         "default_branch": defaults_raw.get("default_branch", ""),
         "terminal_launcher": defaults_raw.get("terminal_launcher", "auto"),
+        "zellij_mouse_mode": defaults_raw.get("zellij_mouse_mode", "disabled"),
     }
 
     if not isinstance(defaults["agents"], list) or not defaults["agents"]:
@@ -172,6 +174,8 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         out.error(
             "defaults.terminal_launcher must be one of: auto, current_shell, ghostty, ghostty_app, terminal"
         )
+    if defaults["zellij_mouse_mode"] not in {"enabled", "disabled"}:
+        out.error("defaults.zellij_mouse_mode must be one of: enabled, disabled")
 
     if not isinstance(defaults["docker_image_prefix"], str) or not defaults["docker_image_prefix"]:
         out.error("defaults.docker_image_prefix must be a non-empty string")
@@ -479,6 +483,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV", ",".join(defaults["auth_passthrough"]))
     put("GARTH_DEFAULTS_DEFAULT_BRANCH", defaults["default_branch"])
     put("GARTH_DEFAULTS_TERMINAL_LAUNCHER", defaults["terminal_launcher"])
+    put("GARTH_DEFAULTS_ZELLIJ_MOUSE_MODE", defaults["zellij_mouse_mode"])
 
     put("GARTH_TOKEN_REFRESH_ENABLED", token["enabled"])
     put("GARTH_TOKEN_REFRESH_LEAD_TIME", token["lead_time"])

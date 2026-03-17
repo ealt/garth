@@ -52,7 +52,7 @@ unset GARTH_ZELLIJ_TERMINAL_LAUNCHER
 unset GARTH_DEFAULTS_TERMINAL_LAUNCHER
 
 OUT_AUTO="$(garth_zellij_launch smoke-session "$LAYOUT_FILE" 2>&1)"
-echo "$OUT_AUTO" | grep -q '\[dry-run\] .*zellij -s smoke-session --new-session-with-layout'
+echo "$OUT_AUTO" | grep -q '\[dry-run\] .*zellij -s smoke-session --new-session-with-layout .* options --disable-mouse-mode'
 echo "$OUT_AUTO" | grep -q "\[dry-run\] ghostty -e /bin/bash -lc"
 
 GARTH_DEFAULTS_TERMINAL_LAUNCHER="current_shell"
@@ -75,5 +75,13 @@ GARTH_ZELLIJ_TERMINAL_LAUNCHER="bogus-launcher"
 OUT_BOGUS="$(garth_zellij_launch smoke-session "$LAYOUT_FILE" 2>&1)"
 echo "$OUT_BOGUS" | grep -q "Unknown terminal launcher 'bogus-launcher'; falling back to auto"
 echo "$OUT_BOGUS" | grep -q "\[dry-run\] ghostty -e /bin/bash -lc"
+
+GARTH_ZELLIJ_TERMINAL_LAUNCHER="current_shell"
+GARTH_DEFAULTS_ZELLIJ_MOUSE_MODE="enabled"
+OUT_MOUSE_ENABLED="$(garth_zellij_launch smoke-session "$LAYOUT_FILE" 2>&1)"
+if echo "$OUT_MOUSE_ENABLED" | grep -q "disable-mouse-mode"; then
+  echo "unexpected zellij mouse-mode override when enabled"
+  exit 1
+fi
 
 echo "zellij_launcher_smoke: ok"

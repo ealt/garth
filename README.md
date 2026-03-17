@@ -280,6 +280,14 @@ Terminal launcher note:
   current shell instead
 - valid values: `auto`, `current_shell`, `ghostty`, `ghostty_app`, `terminal`
 
+Zellij mouse note:
+
+- `--no-alt-screen` on an agent like Codex does not affect zellij itself
+- `defaults.zellij_mouse_mode = "disabled"` forwards wheel scrolling to the
+  host terminal and is the default in `config.example.toml`
+- set `defaults.zellij_mouse_mode = "enabled"` if you prefer zellij mouse
+  pane handling instead
+
 Feature notes:
 
 - set `features.packages` to install optional tools in image builds
@@ -506,6 +514,11 @@ implementation details, see [`AGENTS.md`](AGENTS.md#security-model).
 - `Ghostty would like to access data from other apps`: set
   `defaults.terminal_launcher = "current_shell"` to avoid macOS app-launch
   permission prompts from Ghostty/Terminal automation
+- `Mouse wheel still does not scroll in zellij`: `--no-alt-screen` only
+  affects the agent process, not zellij. Reattach with `garth open <id>` so
+  garth applies `--disable-mouse-mode`, or set
+  `defaults.zellij_mouse_mode = "enabled"` if you explicitly want zellij to
+  keep consuming mouse events
 - `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names

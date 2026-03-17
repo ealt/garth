@@ -44,5 +44,6 @@ grep -q 'tab name="codex" {' "$tmp_layout"
 launch_script="$(garth_zellij_launcher_script "/usr/local/bin/zellij" "test-session" "/tmp/layout.kdl")"
 grep -q 'list-sessions -n' <<< "$launch_script"
 grep -q -- '--new-session-with-layout' <<< "$launch_script"
+grep -q -- 'options --disable-mouse-mode' <<< "$launch_script"
 
 echo "zellij_layout_smoke: ok"
