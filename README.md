@@ -65,6 +65,21 @@ brew install ealt/tap/garth
 garth setup
 ```
 
+If `garth` is not found in the same terminal right after `brew install`, start
+a new shell or refresh the shell command cache with `rehash` (zsh) or
+`hash -r` (bash), then run `garth setup`.
+
+If a new shell still cannot find `garth`, make sure Homebrew is initializing
+your PATH in your shell startup files:
+
+- Apple Silicon:
+  `echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile`
+- Intel macOS:
+  `echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zprofile`
+
+You can always run setup directly from Homebrew's stable launcher with
+`"$(brew --prefix)"/bin/garth setup`.
+
 ### Curl installer (macOS / Linux)
 
 ```bash
@@ -530,6 +545,11 @@ implementation details, see [`AGENTS.md`](AGENTS.md#security-model).
 - `Unsupported remote URL`: ensure repo uses a GitHub remote URL
 - `Session already exists`: run `garth stop <id>` first (find the ID with
   `garth ps`)
+- `garth: command not found` right after `brew install`: open a new shell or
+  run `rehash` (zsh) / `hash -r` (bash). If that still fails in a fresh shell,
+  add Homebrew to login PATH with `eval "$(/opt/homebrew/bin/brew shellenv)"`
+  on Apple Silicon or `eval "$(/usr/local/bin/brew shellenv)"` on Intel macOS.
+  As a fallback, run `$(brew --prefix)/bin/garth setup` directly.
 - `macOS asks to install Developer Tools for python3`: ensure
   `/opt/homebrew/bin/python3` exists (`brew install python`); `garth` prefers
   that interpreter at runtime. On macOS, `garth` also updates GUI app PATH
