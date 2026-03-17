@@ -3148,8 +3148,14 @@ cmd_setup() {
   fi
 
   local local_bin="$HOME/.local/bin"
+  local install_target="$GARTH_BIN_PATH"
+  local stable_homebrew_bin=""
+  if stable_homebrew_bin="$(garth_homebrew_stable_bin_path "$GARTH_BIN_PATH" 2>/dev/null)"; then
+    install_target="$stable_homebrew_bin"
+    garth_log_info "Detected Homebrew install; using stable launcher: $install_target"
+  fi
   mkdir -p "$local_bin"
-  ln -sf "$GARTH_BIN_PATH" "$local_bin/garth"
+  ln -sf "$install_target" "$local_bin/garth"
   garth_log_success "Installed symlink: $local_bin/garth"
 
   if [[ -f "$GARTH_ROOT/docker/Dockerfile" ]]; then

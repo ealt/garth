@@ -153,6 +153,25 @@ garth_abs_path() {
   fi
 }
 
+garth_homebrew_stable_bin_path() {
+  local script_path="$1"
+  local abs_path
+  abs_path="$(garth_abs_path "$script_path")"
+
+  case "$abs_path" in
+    */Cellar/garth/*/bin/garth)
+      local brew_prefix="${abs_path%%/Cellar/garth/*}"
+      local stable_path="$brew_prefix/bin/garth"
+      if [[ -x "$stable_path" ]]; then
+        printf '%s\n' "$stable_path"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 garth_join_by() {
   local delimiter="$1"
   shift
