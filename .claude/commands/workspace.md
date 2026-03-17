@@ -12,11 +12,24 @@ The user's task description (and optional flags) is: $ARGUMENTS
 
 Extract from `$ARGUMENTS`:
 - **Task description**: the natural-language description of what the user wants to work on
+- **Target repo**: which repository the work belongs in (see below)
 - **`--auto` flag**: if present, skip confirmations and act autonomously
 - **`--base <ref>` flag**: if present, use as the base ref for the new branch
 
 If `$ARGUMENTS` is empty, ask the user what they want to work on before
 proceeding.
+
+### 1b. Identify the target repo
+
+**Do NOT default to the current directory (`.`) or the garth repo.** The user
+often invokes `/workspace` from within garth but intends to work in a different
+repo.
+
+- If the task description names a project or repo (e.g., "simplex-infra",
+  "virgil"), resolve it under `~/Documents/<name>`. Verify the directory exists
+  before proceeding.
+- If the task description is ambiguous, **ask the user** which repo to target.
+- Only use `.` if the user explicitly says "this repo" or "garth".
 
 ### 2. Generate a branch name
 
@@ -36,7 +49,7 @@ Briefly report what was cleaned (if anything).
 Then check for conflicts:
 ```bash
 garth ps
-git branch --list '*<branch-body-pattern>*'
+git -C <repo-path> branch --list '*<branch-body-pattern>*'
 ```
 
 Look for:
@@ -50,13 +63,13 @@ Look for:
 - Otherwise: tell the user about the existing session and offer to resume it
 
 **If a matching branch exists but no session:**
-- Offer to open it with `garth open -d . <branch>`
+- Offer to open it with `garth open -d <repo-path> <branch>`
 
 **If no match found:**
-- In `--auto` mode: run `garth new . <branch>` directly (add
+- In `--auto` mode: run `garth new <repo-path> <branch>` directly (add
   `--base <ref>` if specified)
-- Otherwise: show the proposed branch name and `garth new` command, then ask
-  the user to confirm before running
+- Otherwise: show the proposed branch name, target repo, and `garth new`
+  command, then ask the user to confirm before running
 
 ### 5. Verify
 
