@@ -76,6 +76,29 @@ Look for:
 After running the garth command, run `garth ps` to confirm the session is
 active. Report the session ID and status to the user.
 
+## Cleaning up workspaces
+
+When the user asks to clean up a workspace, follow these steps:
+
+1. **Stop the session**: `garth stop <id> --clean`
+2. **Remove the worktree**: `git -C <repo-path> worktree remove <worktree-path>`
+3. **Delete the branch**: try `git -C <repo-path> branch -d <branch>` first
+
+If `git branch -d` fails with "not fully merged", the branch was likely
+**squash-merged** via a PR. Squash merges rewrite history so git cannot detect
+that the changes are already in main. To verify:
+
+```bash
+gh pr list --repo <owner>/<repo> --head <branch> --state merged --json number,title,state
+```
+
+If a merged PR is found, the branch is safe to force-delete with
+`git branch -D <branch>`. Do **not** prompt the user for confirmation in this
+case — just delete it and note it was squash-merged.
+
+If no merged PR is found and the branch has unmerged commits, **ask the user**
+before force-deleting.
+
 ## Error handling
 
 - **`garth` not on PATH**: fall back to `bin/garth` (relative to repo root)
