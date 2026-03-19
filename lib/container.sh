@@ -285,11 +285,12 @@ garth_prepare_agent_env_file() {
     has_api_key=true
   else
     # Host mode can rely on existing local CLI auth sessions (consumer subscriptions).
-    if [[ -n "$api_key_ref" && "$api_key_ref" != *"<"* ]]; then
+    # Skip secret read for empty, placeholder, or explicitly disabled refs.
+    if [[ -n "$api_key_ref" && "$api_key_ref" != *"<"* && "$api_key_ref" != "none" ]]; then
       if api_key=$(garth_secret_read "$api_key_ref"); then
         has_api_key=true
       else
-        garth_log_warn "Could not read agents.$agent.api_key_ref; continuing with local CLI auth in sandbox=none"
+        garth_log_warn "Could not read agents.$agent.api_key_ref; continuing with CLI auth passthrough"
       fi
     fi
   fi
