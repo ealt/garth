@@ -278,7 +278,7 @@ Key sections:
 - `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
 - `[features]`: optional packages and host mounts for agent images
 - `[security]`: protected read-only worktree paths, seccomp profile path, and auth passthrough mount modes (`ro|rw`)
-- `[agents.<name>]`: command + safe/permissive args + API key ref
+- `[agents.<name>]`: command + safe/permissive args + API key env name, plus optional API key ref
 
 Validation is strict for known fields and warning-only for unknown fields.
 
@@ -441,6 +441,8 @@ Auth note:
 
 - `--sandbox docker`: agent API keys are required unless the agent is listed in
   `defaults.auth_passthrough` (or passed via `--auth-passthrough`)
+- `agents.<name>.api_key_ref` may be left empty (`""`) when that agent will use
+  local CLI login auth instead of a 1Password-stored API key
 - `garth agent` auto-detects local `claude`/`codex` CLI auth state and
   auto-enables passthrough for those agents in Docker mode
 - `--sandbox none`: local CLI login auth is supported (for example

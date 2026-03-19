@@ -30,4 +30,10 @@ if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_E
 fi
 grep -q "Unknown key: features.foo" "$TMP_ERR"
 
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -0pi -e 's/api_key_ref = "op:\/\/<VAULT>\/OpenAI\/api-key"/api_key_ref = ""/' "$TMP_CFG"
+"$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG"
+ENV_OUT=$("$GARTH_ROOT/lib/config-parser.py" env "$TMP_CFG")
+printf '%s\n' "$ENV_OUT" | grep -q "^GARTH_AGENT_CODEX_API_KEY_REF=''\$"
+
 echo "config_parser_smoke: ok"
