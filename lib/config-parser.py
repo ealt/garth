@@ -441,8 +441,8 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
 
         if not isinstance(agent["api_key_env"], str) or not agent["api_key_env"].strip():
             out.error(f"agents.{name}.api_key_env is required and must be non-empty")
-        if not isinstance(agent["api_key_ref"], str) or not agent["api_key_ref"].strip():
-            out.error(f"agents.{name}.api_key_ref is required and must be non-empty")
+        if not isinstance(agent["api_key_ref"], str):
+            out.error(f"agents.{name}.api_key_ref must be a string when set")
 
         agents[name] = agent
 

@@ -77,6 +77,7 @@ base_command = "claude"
 safe_args = []
 permissive_args = ["--dangerously-skip-permissions"]
 api_key_env = "ANTHROPIC_API_KEY"
+# Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.
 api_key_ref = "op://<VAULT>/Anthropic/api-key"
 
 [agents.codex]
@@ -84,6 +85,7 @@ base_command = "codex"
 safe_args = ["--no-alt-screen"]
 permissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]
 api_key_env = "OPENAI_API_KEY"
+# Set to "" when relying on Codex CLI login instead of an API key.
 api_key_ref = "op://<VAULT>/OpenAI/api-key"
 
 [agents.opencode]
