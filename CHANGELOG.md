@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] - 2026-03-19
+
+### Added
+
+- `GITHUB_TOKEN` is now exported inside Docker containers via
+  `/etc/profile.d/garth-gh-token.sh`, so `gh` CLI and other tools that read the
+  env var can authenticate (previously only `git` worked via the credential
+  helper)
+- `garth doctor --deep` verifies `GITHUB_TOKEN` is exported in Docker containers
+  and flags stale images missing the profile.d script
+- `garth doctor` warns when `TMPDIR` is long enough that zellij session names
+  risk exceeding the macOS 104-byte Unix socket path limit
+- `garth_zellij_validate_session_name` checks socket path length before launch
+  and prints a clear error instead of letting zellij hang silently
+
+### Fixed
+
+- Session names now dynamically compute their max length from the actual
+  `TMPDIR` path, reserving room for the zellij socket prefix and conflict-
+  avoidance suffix (`-NN`).  Previously the 36-char cap was sufficient for the
+  session name alone but the `-2`, `-3`, ... `-15` suffix from
+  `garth_unique_session_name` could push the full socket path past macOS's
+  104-byte `sun_path` limit, causing zellij to hang silently.
+- Ghostty terminal launcher on macOS now skips the CLI binary path (which
+  cannot launch terminal windows on macOS per Ghostty docs) and goes directly
+  to the `open -na Ghostty.app` app launcher.  The `ghostty` and `auto`
+  launcher modes now fall through to the app launcher instead of falling back
+  to `current_shell` when the CLI path fails.
+- Docker images must be rebuilt (`garth refresh-images`) to pick up the
+  `GITHUB_TOKEN` profile.d script
+
 ## [0.3.3] - 2026-03-19
 
 ### Fixed
