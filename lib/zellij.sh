@@ -25,6 +25,27 @@ garth_kdl_write_args_line() {
   printf '\n'
 }
 
+garth_zellij_validate_session_name() {
+  local session="$1"
+  local zellij_version
+  zellij_version=$(zellij --version 2>/dev/null | awk '{print $2}')
+  : "${zellij_version:=0.0.0}"
+  local socket_dir="${TMPDIR:-/tmp}/zellij-$(id -u)/${zellij_version}"
+  local socket_path="${socket_dir}/${session}"
+  local path_len=${#socket_path}
+  # macOS sun_path is 104 bytes (103 usable + null terminator).
+  # Linux is 108.  Use the smaller limit for safety.
+  local max_path=103
+  if [[ "$path_len" -gt "$max_path" ]]; then
+    garth_log_error "Session name '${session}' is too long for zellij"
+    garth_log_error "  Socket path would be ${path_len} bytes (limit: ${max_path})"
+    garth_log_error "  Path: ${socket_path}"
+    garth_log_error "  Zellij will hang silently. Use a shorter branch name or repo name."
+    return 1
+  fi
+  return 0
+}
+
 garth_zellij_session_state() {
   local target_session="$1"
   local line name
@@ -154,6 +175,11 @@ garth_zellij_try_launch_ghostty_bin() {
   local session="$1"
   local pre_state="$2"
   local launch_script="$3"
+  # Ghostty CLI cannot launch terminal windows on macOS — only actions are
+  # supported.  Skip immediately so callers fall through to the app launcher.
+  if garth_is_macos; then
+    return 1
+  fi
   garth_zellij_clean_env ghostty -e /bin/bash -lc "$launch_script" >/dev/null 2>&1 &
   garth_zellij_set_async_if_running "$session" "$pre_state"
 }
@@ -162,10 +188,23 @@ garth_zellij_try_launch_ghostty_app() {
   local session="$1"
   local pre_state="$2"
   local launch_script="$3"
-  if garth_zellij_clean_env open -na "Ghostty" --args -e /bin/bash -lc "$launch_script" >/dev/null 2>&1; then
-    garth_zellij_set_async_if_running "$session" "$pre_state"
-    return $?
+  # Write launch script to a temp file to avoid quoting issues with
+  # open --args.  The file self-deletes after sourcing.
+  local launch_file
+  launch_file="$(mktemp "${TMPDIR:-/tmp}/garth-launch.XXXXXX")"
+  {
+    echo '#!/usr/bin/env bash'
+    printf 'rm -f %q\n' "$launch_file"
+    printf '%s\n' "$launch_script"
+  } > "$launch_file"
+  chmod +x "$launch_file"
+  if garth_zellij_clean_env open -na "Ghostty" --args -e "$launch_file" >/dev/null 2>&1; then
+    if [[ "$pre_state" == "running" ]] || garth_zellij_wait_for_running "$session" 30; then
+      GARTH_ZELLIJ_LAUNCH_ASYNC=true
+      return 0
+    fi
   fi
+  rm -f "$launch_file" 2>/dev/null
   return 1
 }
 
@@ -270,6 +309,9 @@ garth_zellij_launch() {
   local option_word
   GARTH_ZELLIJ_LAUNCH_ASYNC=false
   zellij_bin=$(command -v zellij 2>/dev/null || true)
+  if ! garth_zellij_validate_session_name "$session"; then
+    return 1
+  fi
   pre_state="$(garth_zellij_session_state "$session")"
   if garth_zellij_session_exists "$session"; then
     zellij_args=(attach "$session")
@@ -297,8 +339,9 @@ garth_zellij_launch() {
         ghostty)
           if command -v ghostty >/dev/null 2>&1; then
             echo "[dry-run] ghostty -e /bin/bash -lc '$launch_script'"
-          else
-            echo "[dry-run] ghostty not found; zellij will run in current shell"
+          fi
+          if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+            echo "[dry-run] fallback: open -na Ghostty --args -e /bin/bash -lc '$launch_script'"
           fi
           ;;
         ghostty_app)
@@ -345,14 +388,15 @@ garth_zellij_launch() {
       current_shell)
         ;;
       ghostty)
-        if command -v ghostty >/dev/null 2>&1; then
-          if garth_zellij_try_launch_ghostty_bin "$session" "$pre_state" "$launch_script"; then
+        if garth_zellij_try_launch_ghostty_bin "$session" "$pre_state" "$launch_script"; then
+          return 0
+        fi
+        if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
+          if garth_zellij_try_launch_ghostty_app "$session" "$pre_state" "$launch_script"; then
             return 0
           fi
-          garth_log_warn "Ghostty launch did not reach running session state; falling back to current shell"
-        else
-          garth_log_warn "ghostty not found; falling back to current shell"
         fi
+        garth_log_warn "Ghostty launch failed; falling back to current shell"
         ;;
       ghostty_app)
         if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
@@ -375,11 +419,8 @@ garth_zellij_launch() {
         fi
         ;;
       auto)
-        if command -v ghostty >/dev/null 2>&1; then
-          if garth_zellij_try_launch_ghostty_bin "$session" "$pre_state" "$launch_script"; then
-            return 0
-          fi
-          garth_log_warn "Ghostty launch did not reach running session state; trying fallback launcher"
+        if garth_zellij_try_launch_ghostty_bin "$session" "$pre_state" "$launch_script"; then
+          return 0
         fi
         if [[ -d "/Applications/Ghostty.app" ]] && command -v open >/dev/null 2>&1; then
           if garth_zellij_try_launch_ghostty_app "$session" "$pre_state" "$launch_script"; then

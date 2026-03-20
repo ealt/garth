@@ -3505,6 +3505,17 @@ HELP
     done
   fi
 
+  # Check that a typical session name fits within the zellij socket path limit.
+  if command -v zellij >/dev/null 2>&1; then
+    local doctor_test_session="garth-example-repo-feature__long-branch-name-99"
+    if ! garth_zellij_validate_session_name "$doctor_test_session" 2>/dev/null; then
+      garth_log_warn "Zellij session names may exceed macOS socket path limit (104 bytes)"
+      garth_log_warn "  TMPDIR is long (${#TMPDIR} chars): ${TMPDIR:-/tmp}"
+      garth_log_warn "  Sessions with long repo/branch names may silently hang"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
   if [[ "$op_available" == "true" ]]; then
     if [[ "$config_loaded" == "true" ]] && garth_ref_looks_configured "$GARTH_GITHUB_APP_APP_ID_REF"; then
       if op read "$GARTH_GITHUB_APP_APP_ID_REF" >/dev/null 2>&1; then
@@ -3802,6 +3813,39 @@ HELP
         fi
       else
         garth_log_info "Skipping Claude deep checks: 'claude' not enabled in defaults.auth_passthrough"
+      fi
+
+      # Deep check: verify GITHUB_TOKEN is exported inside Docker containers.
+      # The profile.d script should export it from GARTH_GITHUB_TOKEN_FILE.
+      local gh_test_image="${deep_image_prefix}-claude:latest"
+      local gh_image_state
+      gh_image_state=$(garth_docker_image_state "$gh_test_image")
+      if [[ "$gh_image_state" == "present" ]]; then
+        local gh_token_probe
+        local gh_tmpdir
+        gh_tmpdir=$(mktemp -d)
+        printf 'probe_token\n' > "$gh_tmpdir/github_token"
+        if gh_token_probe=$(docker run --rm \
+          --read-only \
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+          --tmpfs /home/agent:rw,exec,nosuid,size=64m,uid=1001,gid=1001,mode=0700 \
+          -v "${gh_tmpdir}:/run/garth:ro" \
+          --env GARTH_GITHUB_TOKEN_FILE=/run/garth/github_token \
+          --env HOME=/home/agent \
+          "$gh_test_image" \
+          bash -lc 'printf "%s" "$GITHUB_TOKEN"' 2>/dev/null); then
+          if [[ "$gh_token_probe" == "probe_token" ]]; then
+            garth_log_success "Deep check passed: GITHUB_TOKEN exported in container via profile.d"
+          else
+            garth_log_error "Deep check failed: GITHUB_TOKEN not exported in container (gh CLI will fail)"
+            garth_log_error "  Rebuild images: garth refresh-images"
+            failures=$((failures + 1))
+          fi
+        else
+          garth_log_warn "Deep check skipped: unable to probe GITHUB_TOKEN in container"
+          warnings=$((warnings + 1))
+        fi
+        rm -rf "$gh_tmpdir"
       fi
     fi
   fi

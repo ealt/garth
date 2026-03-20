@@ -69,6 +69,17 @@ RUN set -eux; \
 
 RUN git config --system credential.helper /usr/local/bin/garth-git-credential-helper
 
+# Export GITHUB_TOKEN from mounted token file so gh CLI (and other tools that
+# read the env var) can authenticate.  Sourced on every login-shell startup
+# (bash -lc), which means token rotations are picked up by new shell invocations.
+RUN printf '%s\n' \
+    'token_file="${GARTH_GITHUB_TOKEN_FILE:-/run/garth/github_token}"' \
+    'if [ -f "$token_file" ]; then' \
+    '  GITHUB_TOKEN="$(cat "$token_file")"' \
+    '  export GITHUB_TOKEN' \
+    'fi' \
+    > /etc/profile.d/garth-gh-token.sh
+
 USER agent
 WORKDIR /home/agent
 

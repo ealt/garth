@@ -109,12 +109,20 @@ garth_git_https_url_from_remote() {
 garth_git_session_name() {
   local repo_name="$1"
   local branch="$2"
-  local max_len="${3:-36}"
+  local max_len="${3:-}"
+  if [[ -z "$max_len" ]]; then
+    # macOS sun_path is 104 bytes.  Zellij places sockets at
+    # $TMPDIR/zellij-$UID/$VERSION/$SESSION.  Reserve room for that prefix
+    # plus a -NN suffix from garth_unique_session_name.
+    local prefix="${TMPDIR:-/tmp}/zellij-$(id -u)/0.00.0/"
+    local suffix_reserve=3  # e.g. "-15"
+    max_len=$(( 103 - ${#prefix} - suffix_reserve ))  # 103 = 104 - null
+    # Floor at a reasonable minimum
+    (( max_len < 20 )) && max_len=20
+  fi
   local branch_slug
   branch_slug=$(garth_slugify_branch "$branch")
   local session="garth-${repo_name}-${branch_slug}"
-  # Zellij 0.43+ limits session names; via Ghostty login wrapper the
-  # effective limit drops to ~36 characters.
   if [[ ${#session} -le $max_len ]]; then
     echo "$session"
   else
