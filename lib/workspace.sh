@@ -381,7 +381,9 @@ garth_launch_chromium_browser() {
       return 0
     fi
 
-    if [[ "${app,,}" == "google chrome" ]]; then
+    local app_lower
+    app_lower="$(printf '%s' "$app" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$app_lower" == "google chrome" ]]; then
       if [[ "$GARTH_DRY_RUN" == "true" ]]; then
         echo "[dry-run] osascript Google Chrome new window -> $url"
         return 0

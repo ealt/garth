@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-24
+
+### Fixed
+
+- Chromium default-profile case-insensitive app name comparison now uses
+  `tr` instead of Bash 4+ `${var,,}` syntax, fixing launch failures on
+  macOS (which ships Bash 3.2)
+
 ## [1.0.0] - 2026-03-24
 
 ### Added
@@ -206,6 +214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[1.0.1]: https://github.com/ealt/garth/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ealt/garth/releases/tag/v1.0.0
 [0.3.4]: https://github.com/ealt/garth/releases/tag/v0.3.4
 [0.3.3]: https://github.com/ealt/garth/releases/tag/v0.3.3
