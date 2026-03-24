@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Generic browser configuration via `[browser]` with `chromium`, `firefox`,
+  `open`, and `none` engines
+- Dedicated browser launcher smoke coverage in `tests/browser_launch_smoke.sh`
+- README browser migration guidance and common config examples for Chrome,
+  Brave, Firefox, Safari, and Arc-style setups
+
+### Changed
+
+- Browser launch config now uses `[browser]` instead of `[chrome]`
+- Browser launch env emission now uses `GARTH_BROWSER_*` instead of
+  `GARTH_CHROME_*`
+- Workspace launch docs and references now describe browser launch behavior
+  generically instead of assuming Chrome-only integration
+
+### Removed
+
+- `[chrome]` config support and the dead `profile_directory` field
+- `garth_launch_chrome_profile()` in favor of engine-based browser dispatch
+
+### Fixed
+
+- `garth new`, `garth open`, and `garth up` now fail fast on deprecated
+  `GARTH_SKIP_CHROME` and `GARTH_CHROME_PROFILES_DIR` env vars instead of
+  silently ignoring them
+- macOS Chrome default-profile launch now treats `app = "google chrome"` the
+  same as `app = "Google Chrome"` when deciding whether to use the AppleScript
+  new-window path
+
 ## [0.3.4] - 2026-03-19
 
 ### Added

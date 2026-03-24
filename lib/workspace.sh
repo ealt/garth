@@ -1,4 +1,4 @@
-# Workspace launch helpers (Cursor, Chrome profile, AeroSpace workspace).
+# Workspace launch helpers (Cursor, browser launch, AeroSpace workspace).
 
 if [[ -n "${GARTH_WORKSPACE_SH_LOADED:-}" ]]; then
   return 0
@@ -288,59 +288,244 @@ settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", e
 PY
 }
 
-garth_launch_chrome_profile() {
+garth_browser_profile_path() {
   local profiles_root="$1"
   local profile_name="$2"
-  local url="$3"
+  local expanded_root="${profiles_root/#\~/$HOME}"
+  printf '%s\n' "$expanded_root/$profile_name"
+}
 
-  if [[ -z "$profiles_root" ]]; then
-    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
-      echo "[dry-run] osascript Google Chrome new window -> $url"
-      return 0
-    fi
+garth_find_browser_binary() {
+  local preferred="$1"
+  shift
 
-    if ! garth_is_macos; then
-      garth_log_warn "Chrome launch skipped (non-macOS)"
-      return 0
-    fi
-
-    open -g -a "Google Chrome" >/dev/null 2>&1 || true
-
-    local escaped_url="$url"
-    escaped_url="${escaped_url//\\/\\\\}"
-    escaped_url="${escaped_url//\"/\\\"}"
-    if osascript \
-      -e "tell application \"Google Chrome\" to activate" \
-      -e "tell application \"Google Chrome\" to set _w to make new window" \
-      -e "tell application \"Google Chrome\" to set URL of active tab of _w to \"$escaped_url\"" \
-      >/dev/null 2>&1; then
-      return 0
-    fi
-
-    if open -a "Google Chrome" "$url" >/dev/null 2>&1; then
-      return 0
-    fi
-
-    garth_log_warn "Failed to launch Chrome new window"
+  if [[ -n "$preferred" ]] && command -v "$preferred" >/dev/null 2>&1; then
+    printf '%s\n' "$preferred"
     return 0
   fi
 
-  local expanded_root="${profiles_root/#\~/$HOME}"
+  local candidate
+  for candidate in "$@"; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+garth_launch_browser_command() {
+  local command_name="$1"
+  shift
 
   if [[ "$GARTH_DRY_RUN" == "true" ]]; then
-    echo "[dry-run] open -na Google Chrome --args --user-data-dir=$expanded_root/$profile_name $url"
+    echo "[dry-run] $command_name $*"
     return 0
   fi
 
-  mkdir -p "$expanded_root/$profile_name"
+  "$command_name" "$@" >/dev/null 2>&1 &
+  disown || true
+}
 
-  if ! garth_is_macos; then
-    garth_log_warn "Chrome profile launch skipped (non-macOS)"
+garth_launch_browser() {
+  local engine="$1"
+  local app="$2"
+  local binary="$3"
+  local profiles_root="$4"
+  local profile_name="$5"
+  local url="$6"
+
+  case "$engine" in
+    chromium)
+      garth_launch_chromium_browser "$app" "$binary" "$profiles_root" "$profile_name" "$url"
+      ;;
+    firefox)
+      garth_launch_firefox_browser "$app" "$binary" "$profiles_root" "$profile_name" "$url"
+      ;;
+    open)
+      garth_launch_url_only_browser "$app" "$url"
+      ;;
+    none)
+      return 0
+      ;;
+    *)
+      garth_log_warn "Unsupported browser engine: $engine"
+      return 0
+      ;;
+  esac
+}
+
+garth_launch_chromium_browser() {
+  local app="$1"
+  local binary="$2"
+  local profiles_root="$3"
+  local profile_name="$4"
+  local url="$5"
+
+  if garth_is_macos; then
+    if [[ -n "$profiles_root" ]]; then
+      if [[ -z "$app" ]]; then
+        garth_log_warn "Chromium browser launch skipped (missing macOS app name)"
+        return 0
+      fi
+      local profile_path
+      profile_path=$(garth_browser_profile_path "$profiles_root" "$profile_name")
+      if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+        echo "[dry-run] open -na $app --args --user-data-dir=$profile_path $url"
+        return 0
+      fi
+      mkdir -p "$profile_path"
+      open -na "$app" --args "--user-data-dir=$profile_path" "$url" >/dev/null 2>&1 || \
+        garth_log_warn "Failed to launch $app with isolated Chromium profile"
+      return 0
+    fi
+
+    if [[ "${app,,}" == "google chrome" ]]; then
+      if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+        echo "[dry-run] osascript Google Chrome new window -> $url"
+        return 0
+      fi
+
+      open -g -a "Google Chrome" >/dev/null 2>&1 || true
+
+      local escaped_url="$url"
+      escaped_url="${escaped_url//\\/\\\\}"
+      escaped_url="${escaped_url//\"/\\\"}"
+      if osascript \
+        -e "tell application \"Google Chrome\" to activate" \
+        -e "tell application \"Google Chrome\" to set _w to make new window" \
+        -e "tell application \"Google Chrome\" to set URL of active tab of _w to \"$escaped_url\"" \
+        >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+
+    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+      if [[ -n "$app" ]]; then
+        echo "[dry-run] open -a $app $url"
+      else
+        echo "[dry-run] open $url"
+      fi
+      return 0
+    fi
+
+    if [[ -n "$app" ]]; then
+      open -a "$app" "$url" >/dev/null 2>&1 || garth_log_warn "Failed to launch $app"
+    else
+      open "$url" >/dev/null 2>&1 || garth_log_warn "Failed to open browser URL"
+    fi
     return 0
   fi
 
-  open -na "Google Chrome" --args "--user-data-dir=$expanded_root/$profile_name" "$url" >/dev/null 2>&1 || \
-    garth_log_warn "Failed to launch Chrome with profile"
+  local resolved_binary=""
+  if ! resolved_binary=$(garth_find_browser_binary "$binary" google-chrome-stable google-chrome chromium-browser chromium); then
+    garth_log_warn "Chromium browser launch skipped (no supported Linux binary found)"
+    return 0
+  fi
+
+  if [[ -n "$profiles_root" ]]; then
+    local profile_path
+    profile_path=$(garth_browser_profile_path "$profiles_root" "$profile_name")
+    if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+      mkdir -p "$profile_path"
+    fi
+    garth_launch_browser_command "$resolved_binary" "--user-data-dir=$profile_path" "$url"
+    return 0
+  fi
+
+  garth_launch_browser_command "$resolved_binary" "$url"
+}
+
+garth_launch_firefox_browser() {
+  local app="$1"
+  local binary="$2"
+  local profiles_root="$3"
+  local profile_name="$4"
+  local url="$5"
+
+  if garth_is_macos; then
+    if [[ -n "$profiles_root" ]]; then
+      if [[ -z "$app" ]]; then
+        garth_log_warn "Firefox browser launch skipped (missing macOS app name)"
+        return 0
+      fi
+      local profile_path
+      profile_path=$(garth_browser_profile_path "$profiles_root" "$profile_name")
+      if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+        echo "[dry-run] open -na $app --args -profile $profile_path $url"
+        return 0
+      fi
+      mkdir -p "$profile_path"
+      open -na "$app" --args -profile "$profile_path" "$url" >/dev/null 2>&1 || \
+        garth_log_warn "Failed to launch $app with isolated Firefox profile"
+      return 0
+    fi
+
+    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+      if [[ -n "$app" ]]; then
+        echo "[dry-run] open -a $app $url"
+      else
+        echo "[dry-run] open $url"
+      fi
+      return 0
+    fi
+
+    if [[ -n "$app" ]]; then
+      open -a "$app" "$url" >/dev/null 2>&1 || garth_log_warn "Failed to launch $app"
+    else
+      open "$url" >/dev/null 2>&1 || garth_log_warn "Failed to open browser URL"
+    fi
+    return 0
+  fi
+
+  local resolved_binary=""
+  if ! resolved_binary=$(garth_find_browser_binary "$binary" firefox firefox-esr); then
+    garth_log_warn "Firefox browser launch skipped (no supported Linux binary found)"
+    return 0
+  fi
+
+  if [[ -n "$profiles_root" ]]; then
+    local profile_path
+    profile_path=$(garth_browser_profile_path "$profiles_root" "$profile_name")
+    if [[ "$GARTH_DRY_RUN" != "true" ]]; then
+      mkdir -p "$profile_path"
+    fi
+    garth_launch_browser_command "$resolved_binary" -profile "$profile_path" "$url"
+    return 0
+  fi
+
+  garth_launch_browser_command "$resolved_binary" "$url"
+}
+
+garth_launch_url_only_browser() {
+  local app="$1"
+  local url="$2"
+
+  if garth_is_macos; then
+    if [[ "$GARTH_DRY_RUN" == "true" ]]; then
+      if [[ -n "$app" ]]; then
+        echo "[dry-run] open -a $app $url"
+      else
+        echo "[dry-run] open $url"
+      fi
+      return 0
+    fi
+
+    if [[ -n "$app" ]]; then
+      open -a "$app" "$url" >/dev/null 2>&1 || garth_log_warn "Failed to launch $app"
+    else
+      open "$url" >/dev/null 2>&1 || garth_log_warn "Failed to open browser URL"
+    fi
+    return 0
+  fi
+
+  if ! command -v xdg-open >/dev/null 2>&1; then
+    garth_log_warn "Browser launch skipped (xdg-open not available)"
+    return 0
+  fi
+
+  garth_launch_browser_command xdg-open "$url"
 }
 
 garth_aerospace_list_workspaces() {

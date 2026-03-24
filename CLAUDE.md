@@ -26,6 +26,7 @@ garth gc --repos ~/Documents               # also sweep branches across repos
 garth refresh-images --agents claude       # rebuild one Docker image
 garth doctor --repo .                      # validate prerequisites
 bash tests/config_parser_smoke.sh          # run config tests
+bash tests/browser_launch_smoke.sh         # run browser launch tests
 bash tests/git_helpers_smoke.sh            # run git tests
 bash tests/zellij_layout_smoke.sh          # run layout tests
 bash tests/session_helpers_smoke.sh        # run session tests
