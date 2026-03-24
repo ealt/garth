@@ -381,7 +381,7 @@ garth_launch_chromium_browser() {
       return 0
     fi
 
-    if [[ "$app" == "Google Chrome" ]]; then
+    if [[ "${app,,}" == "google chrome" ]]; then
       if [[ "$GARTH_DRY_RUN" == "true" ]]; then
         echo "[dry-run] osascript Google Chrome new window -> $url"
         return 0

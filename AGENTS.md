@@ -238,7 +238,7 @@ Terminal.app → current shell), `garth_zellij_kill_session`.
 
 **Dependencies:** `lib/common.sh`, `lib/container.sh`.
 
-### lib/workspace.sh (446 lines)
+### lib/workspace.sh (631 lines)
 
 macOS GUI integrations: Cursor, browser launch helpers, AeroSpace workspace management.
 

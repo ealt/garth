@@ -15,7 +15,7 @@ concurrent projects/tasks across windows is a chaotic mess of context switching.
 
 This plan builds a single CLI that:
 
-1. Boots isolated project workspaces (Cursor + Chrome profile + Zellij layout)
+1. Boots isolated project workspaces (Cursor + browser launch + Zellij layout)
 2. Runs agents in Docker containers (only the worktree mounted, no host secrets)
 3. Uses GitHub App installation tokens (minted on demand, 1hr expiry, via 1Password)
 4. Supports git worktrees for parallel tasks in the same repo
@@ -34,7 +34,7 @@ toolchain/garth/
 ├── lib/
 │   ├── common.sh                  # Logging, config parsing, shared utils
 │   ├── git.sh                     # Git repo/worktree detection & helpers
-│   ├── workspace.sh               # Chrome, Cursor, Ghostty launchers
+│   ├── workspace.sh               # Browser, Cursor, Ghostty launchers
 │   ├── zellij.sh                  # Zellij session & layout generation
 │   ├── container.sh               # Docker container build/run lifecycle
 │   ├── github-app.sh              # JWT generation & installation token minting
@@ -70,7 +70,7 @@ layout, and launches the full workspace.
    - Each requested agent running via `docker run -it` with scoped credentials
 7. Launch Zellij: `zellij -s "garth-<repo>-<branch>" --layout <generated.kdl>`
 8. Open Cursor: `open -a "Cursor" "$dir"`
-9. Open Chrome: `--user-data-dir` per-project profile, open GitHub URL
+9. Open browser: engine-specific launch with optional per-project profile isolation
 
 **Flags:** `--agents claude,codex` (default from config), `--no-sandbox`,
 `--network on|off`, `--workspace N` (AeroSpace), `--dry-run`, `--yes`
@@ -290,7 +290,10 @@ app_id_ref = "op://Development/GitHub App/app-id"
 private_key_ref = "op://Development/GitHub App/private-key"
 installation_id_ref = "op://Development/GitHub App/installation-id"
 
-[chrome]
+[browser]
+engine = "chromium"
+app = "Google Chrome"
+binary = ""
 profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 ```
 
@@ -350,7 +353,7 @@ alt-shift-1 = "move-node-to-workspace 1"
 
 ### Phase 4: Zellij & Workspace
 10. `garth/lib/zellij.sh` — Layout KDL generation, session management
-11. `garth/lib/workspace.sh` — Chrome profile, Cursor, Ghostty launch helpers
+11. `garth/lib/workspace.sh` — browser, Cursor, Ghostty launch helpers
 
 ### Phase 5: Subcommands
 12. Implement `garth boot` — full orchestration (uses phases 1-4)
@@ -393,7 +396,7 @@ alt-shift-1 = "move-node-to-workspace 1"
 
 ## Verification
 
-1. `garth boot .` in a test repo opens Cursor, Chrome (isolated profile), and
+1. `garth boot .` in a test repo opens Cursor, a browser (optionally isolated), and
    Zellij with user shell + agent panes in Docker containers
 2. Inside agent container: `echo $SSH_AUTH_SOCK` is empty, `echo $HOME` is NOT
    the host home, `ls /Users` fails

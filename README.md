@@ -294,6 +294,48 @@ Browser note:
 - `browser.engine = "open"` opens the URL without profile isolation
 - set `browser.profiles_dir = ""` to open URLs in your default browser profile
 
+Common browser configs:
+
+Google Chrome with isolated per-project profiles:
+
+```toml
+[browser]
+engine = "chromium"
+app = "Google Chrome"
+binary = ""
+profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
+```
+
+Brave in your default signed-in profile:
+
+```toml
+[browser]
+engine = "chromium"
+app = "Brave Browser"
+binary = "brave-browser"
+profiles_dir = ""
+```
+
+Firefox with isolated per-project profiles:
+
+```toml
+[browser]
+engine = "firefox"
+app = "Firefox"
+binary = "firefox"
+profiles_dir = "~/Library/Application Support/Firefox-ProjectProfiles"
+```
+
+Safari or Arc without profile isolation:
+
+```toml
+[browser]
+engine = "open"
+app = "Safari"
+binary = ""
+profiles_dir = ""
+```
+
 Terminal launcher note:
 
 - set `defaults.terminal_launcher = "current_shell"` to disable macOS app
