@@ -2,7 +2,6 @@
 agents = ["claude", "codex"]
 sandbox = "docker"
 network = "bridge"
-workspace = "auto"
 safety_mode = "safe"
 docker_image_prefix = "garth"
 auth_passthrough = []

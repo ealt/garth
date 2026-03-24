@@ -19,7 +19,6 @@ This plan builds a single CLI that:
 2. Runs agents in Docker containers (only the worktree mounted, no host secrets)
 3. Uses GitHub App installation tokens (minted on demand, 1hr expiry, via 1Password)
 4. Supports git worktrees for parallel tasks in the same repo
-5. Provides AeroSpace config for deterministic workspace switching
 
 Location: `/Users/ericalt/Documents/toolchain/garth/` (part of toolchain repo).
 
@@ -44,8 +43,6 @@ toolchain/garth/
 │   └── Dockerfile                 # Multi-stage agent sandbox image
 ├── config/
 │   └── garth.example.toml          # Example user configuration
-├── templates/
-│   └── aerospace.example.toml     # AeroSpace config snippet
 └── README.md                      # Complete setup & usage guide
 ```
 
@@ -73,7 +70,7 @@ layout, and launches the full workspace.
 9. Open browser: engine-specific launch with optional per-project profile isolation
 
 **Flags:** `--agents claude,codex` (default from config), `--no-sandbox`,
-`--network on|off`, `--workspace N` (AeroSpace), `--dry-run`, `--yes`
+`--network on|off`, `--dry-run`, `--yes`
 
 ### `garth worktree <repo-dir> <branch> [--from <base>]`
 
@@ -101,8 +98,7 @@ Kill agent containers and Zellij session for a project. Does NOT delete worktree
 ### `garth setup`
 
 Guided first-time setup: check prerequisites, guide GitHub App creation, store
-credentials in 1Password, build Docker image, install AeroSpace, link `garth` to
-PATH.
+credentials in 1Password, build Docker image, link `garth` to PATH.
 
 ---
 
@@ -299,26 +295,6 @@ profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 
 ---
 
-## AeroSpace Config (`templates/aerospace.example.toml`)
-
-Template for `~/.aerospace.toml`. AeroSpace uses its own emulated workspaces
-(no SIP changes, no macOS Spaces dependency).
-
-```toml
-[mode.main.binding]
-alt-1 = "workspace 1"
-alt-2 = "workspace 2"
-# ... through alt-9
-alt-9 = "workspace 9"        # "comms" workspace
-alt-shift-1 = "move-node-to-workspace 1"
-# ... through alt-shift-9
-```
-
-`garth boot --workspace N` moves launched windows to workspace N via
-`aerospace move-node-to-workspace N` (guarded by `command -v aerospace`).
-
----
-
 ## Security Model Summary
 
 | Layer | What it protects against |
@@ -364,9 +340,8 @@ alt-shift-1 = "move-node-to-workspace 1"
 
 ### Phase 6: Setup & Polish
 17. Implement `garth setup` — guided first-time setup
-18. `garth/templates/aerospace.example.toml`
-19. `garth/README.md` — Prerequisites, setup, usage, troubleshooting
-20. Add `garth` symlink to `toolchain/setup.sh`
+18. `garth/README.md` — Prerequisites, setup, usage, troubleshooting
+19. Add `garth` symlink to `toolchain/setup.sh`
 
 ---
 
@@ -385,7 +360,6 @@ alt-shift-1 = "move-node-to-workspace 1"
 ## Prerequisites to Install
 
 - **Zellij**: `brew install zellij` (config already exists at `~/.config/zellij/`)
-- **AeroSpace**: `brew install --cask nikitabobko/tap/aerospace`
 - **GitHub App**: Create at github.com/settings/apps with Contents + PRs
   permissions only (guided by `garth setup`)
 - **1Password items**: Store App ID, private key (document), installation ID,

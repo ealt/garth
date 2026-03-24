@@ -168,6 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   macOS and reduce host app permission prompt friction
 - README now links to the dedicated security model documentation and includes
   explicit guidance for auth-refresh popup mitigation settings
+- Existing configs that still set `defaults.workspace` now emit
+  `warning: Unknown key: defaults.workspace`; delete that key after upgrading
 
 ### Security
 
@@ -186,6 +188,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   disable background `op signin` attempts when desired, eliminating unattended
   popup loops at the cost of possible degraded refresh state until manual
   re-auth
+
+### Removed
+
+- AeroSpace integration has been removed entirely, including the
+  `--workspace` CLI flag, automatic workspace movement during launch, setup and
+  doctor references, and the `templates/aerospace.example.toml` template
+- `defaults.workspace` is no longer part of the config schema and
+  `GARTH_DEFAULTS_WORKSPACE` is no longer emitted by the config parser
 
 ## [0.1.0] - 2026-03-04
 

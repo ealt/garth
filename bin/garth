@@ -503,7 +503,6 @@ garth_launch_workspace() {
   local auth_passthrough_csv=""
   local network=""
   local sandbox=""
-  local workspace=""
   local safety_mode=""
   local session_override=""
   local session_id_override=""
@@ -539,10 +538,6 @@ garth_launch_workspace() {
       --no-sandbox)
         sandbox="none"
         shift
-        ;;
-      --workspace)
-        workspace="$2"
-        shift 2
         ;;
       --safety)
         safety_mode="$2"
@@ -586,7 +581,6 @@ Options:
   --sandbox docker|none       Runtime sandbox mode
   --no-sandbox                Alias for --sandbox none
   --network bridge|none       Docker network mode
-  --workspace <N|auto>        Move windows to AeroSpace workspace N, or auto-select next (max+1)
   --safety safe|permissive    Agent argument preset
   --dry-run                   Print commands without executing
   --yes, -y                   Auto-confirm prompts
@@ -616,7 +610,6 @@ HELP
 
   sandbox="${sandbox:-$GARTH_DEFAULTS_SANDBOX}"
   network="${network:-$GARTH_DEFAULTS_NETWORK}"
-  workspace="${workspace:-$GARTH_DEFAULTS_WORKSPACE}"
   safety_mode="${safety_mode:-$GARTH_DEFAULTS_SAFETY_MODE}"
   auth_passthrough_csv="${auth_passthrough_csv:-$GARTH_DEFAULTS_AUTH_PASSTHROUGH_CSV}"
 
@@ -830,9 +823,8 @@ HELP
   profile_name=$(compute_profile_name "$repo_name" "$branch")
 
   if [[ "${GARTH_SKIP_GUI:-false}" == "true" ]]; then
-    garth_log_warn "GARTH_SKIP_GUI=true; skipping workspace/Cursor/browser launch steps"
+    garth_log_warn "GARTH_SKIP_GUI=true; skipping Cursor/browser launch steps"
   else
-    garth_move_windows_to_workspace "$workspace"
     if [[ "${GARTH_SKIP_CURSOR:-false}" == "true" ]]; then
       garth_log_warn "GARTH_SKIP_CURSOR=true; skipping Cursor launch steps"
     else
@@ -1078,7 +1070,7 @@ cmd_new() {
         no_worktree=true
         shift
         ;;
-      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
+      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--safety)
         forward+=("$1")
         if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
           shift
@@ -1108,7 +1100,6 @@ Options:
   --network bridge|none   Docker network mode
   --safety safe|permissive
                           Agent argument preset
-  --workspace <N|auto>    AeroSpace workspace
   --dry-run               Print commands without executing
   --yes, -y               Auto-confirm prompts
 
@@ -1228,7 +1219,7 @@ cmd_open() {
         session_name_override="$2"
         shift 2
         ;;
-      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
+      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--safety)
         forward+=("$1")
         if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
           shift
@@ -1266,7 +1257,6 @@ Options:
   --network bridge|none   Docker network mode
   --safety safe|permissive
                           Agent argument preset
-  --workspace <N|auto>    AeroSpace workspace
   --dry-run               Print commands without executing
   --yes, -y               Auto-confirm prompts
 
@@ -1509,7 +1499,7 @@ cmd_up() {
         no_worktree=true
         shift
         ;;
-      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--workspace|--safety)
+      --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--safety)
         forward+=("$1")
         if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
           shift
@@ -1559,7 +1549,6 @@ General options:
   --network bridge|none   Docker network mode
   --safety safe|permissive
                           Agent argument preset
-  --workspace <N|auto>    AeroSpace workspace
   --dry-run               Print commands without executing
   --yes, -y               Auto-confirm prompts
 
@@ -2828,37 +2817,6 @@ garth_configure_github_app_refs() {
   fi
 }
 
-garth_setup_aerospace() {
-  local non_interactive="$1"
-
-  if ! garth_is_macos; then
-    return 0
-  fi
-
-  if command -v aerospace >/dev/null 2>&1; then
-    garth_log_success "aerospace is installed"
-    return 0
-  fi
-
-  garth_log_warn "aerospace is not installed; workspace auto-placement needs it"
-  if ! command -v brew >/dev/null 2>&1; then
-    garth_log_warn "Homebrew not found. Install AeroSpace manually from https://github.com/nikitabobko/AeroSpace"
-    return 0
-  fi
-
-  if [[ "$non_interactive" == "true" ]] || garth_ask_yn "Install AeroSpace via Homebrew now?"; then
-    garth_log_info "Installing AeroSpace via Homebrew"
-    if brew tap nikitabobko/tap && brew install --cask aerospace; then
-      garth_log_success "Installed aerospace"
-    else
-      garth_log_warn "AeroSpace install failed. Run manually:"
-      garth_log_warn "  brew tap nikitabobko/tap && brew install --cask aerospace"
-    fi
-  else
-    garth_log_warn "Skipping AeroSpace install. Workspace auto-placement will be disabled."
-  fi
-}
-
 garth_setup_python3() {
   local non_interactive="${1:-false}"
 
@@ -3129,8 +3087,6 @@ cmd_setup() {
       garth_log_warn "$cmd is not installed"
     fi
   done
-
-  garth_setup_aerospace "$non_interactive"
 
   local config_dir
   config_dir=$(dirname "$GARTH_CONFIG_PATH")
@@ -3448,9 +3404,6 @@ HELP
 
   local optional_cmd
   local optional_cmds=(op docker zellij)
-  if garth_is_macos; then
-    optional_cmds+=(aerospace)
-  fi
   for optional_cmd in "${optional_cmds[@]}"; do
     if command -v "$optional_cmd" >/dev/null 2>&1; then
       garth_log_success "Optional command found: $optional_cmd"
