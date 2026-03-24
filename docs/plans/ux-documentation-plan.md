@@ -37,7 +37,6 @@ Options:
   --network bridge|none Docker network mode
   --safety safe|permissive
                         Agent argument preset
-  --workspace <N|auto>  AeroSpace workspace
   --dry-run             Print commands without executing
   --yes, -y             Auto-confirm prompts
 
@@ -76,7 +75,6 @@ Options:
   --network bridge|none Docker network mode
   --safety safe|permissive
                         Agent argument preset
-  --workspace <N|auto>  AeroSpace workspace
   --dry-run             Print commands without executing
   --yes, -y             Auto-confirm prompts
 
@@ -131,7 +129,6 @@ General options:
   --network bridge|none Docker network mode
   --safety safe|permissive
                         Agent argument preset
-  --workspace <N|auto>  AeroSpace workspace
   --dry-run             Print commands without executing
   --yes, -y             Auto-confirm prompts
 

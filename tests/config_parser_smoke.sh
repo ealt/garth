@@ -23,6 +23,10 @@ if echo "$ENV_OUT" | grep -q '^GARTH_CHROME_'; then
   echo "unexpected legacy GARTH_CHROME env var emission"
   exit 1
 fi
+if echo "$ENV_OUT" | grep -q '^GARTH_DEFAULTS_WORKSPACE='; then
+  echo "unexpected legacy GARTH_DEFAULTS_WORKSPACE in env output"
+  exit 1
+fi
 
 TMP_CFG="$(mktemp "${TMPDIR:-/tmp}/garth-config-smoke.XXXXXX.toml")"
 TMP_ERR="$(mktemp "${TMPDIR:-/tmp}/garth-config-smoke.XXXXXX.err")"

@@ -127,7 +127,6 @@ garth up .                         # interactive launcher
 - Zellij session layout with one tab per agent (agent left, shell right)
 - `garth ps` for a dashboard of all sessions, branches, and status
 - Stop, resume, or tear down sessions and their resources independently
-- AeroSpace workspace integration for per-project screen real estate
 
 ## Layout
 
@@ -138,7 +137,6 @@ garth/
   docker/                            # Dockerfile + seccomp profile
   tests/                             # Smoke test scripts
   docs/                              # Setup guides
-  templates/                         # Config templates (AeroSpace)
   config.example.toml                # Baseline config
   config.toml                        # Local config (gitignored)
 ```
@@ -166,7 +164,6 @@ Optional:
 
 - `Cursor` (macOS app launcher)
 - A supported browser app such as `Google Chrome` or `Firefox`
-- `aerospace` (workspace movement)
 
 ## OS Support
 
@@ -179,8 +176,8 @@ macOS-only GUI helpers.
   `garth new`, `garth open`, `garth up`, `garth ps`, session state management,
   Docker sandboxing, token refresh, and Zellij layout/session startup.
 - macOS-only integrations:
-  Cursor auto-launch, browser profile/window launch, AeroSpace workspace
-  placement, and the `launchctl` GUI PATH/Python setup.
+  Cursor auto-launch, browser profile/window launch, and the `launchctl` GUI
+  PATH/Python setup.
 - Linux behavior:
   unsupported GUI integrations are skipped with warnings, and Zellij falls back
   to launching in the current shell instead of using macOS terminal-app
@@ -202,7 +199,6 @@ This repo bootstrap script:
 - validates repo-local config and installs `garth` in `~/.local/bin`
 - on macOS, if `python3` is `/usr/bin/python3`, offers to install Homebrew
   Python (auto in `--yes` when Homebrew is installed)
-- on macOS, offers to install `aerospace` via Homebrew (auto in `--yes`)
 - skips GitHub App ref prompts when already done
 - auto-builds missing default Docker images when Docker is available
 - optionally installs/updates a managed weekly cron job to rebuild default
@@ -224,7 +220,7 @@ image-refresh cron job.
 
 Debug launch toggles (env vars):
 
-- `GARTH_SKIP_GUI=true`: skip workspace move + Cursor + browser launch
+- `GARTH_SKIP_GUI=true`: skip Cursor + browser launch
 - `GARTH_SKIP_CURSOR=true`: skip Cursor setup/launch only
 - `GARTH_SKIP_BROWSER=true`: skip browser launch only
 - `GARTH_SKIP_GUI_PATH_SET=true`: skip macOS GUI PATH update (`launchctl setenv PATH ...`)
@@ -478,12 +474,6 @@ These flags apply to `new`, `open`, and `up`:
 - `--sandbox docker|none`
 - `--network bridge|none`
 - `--safety safe|permissive`
-- `--workspace 3|auto`
-
-Workspace note:
-
-- when `defaults.workspace = "auto"` (default), `garth` uses the next numeric
-  AeroSpace workspace (`max + 1`)
 
 Auth note:
 
@@ -584,7 +574,6 @@ implementation details, see [`AGENTS.md`](AGENTS.md#security-model).
   garth applies `--disable-mouse-mode`, or set
   `defaults.zellij_mouse_mode = "enabled"` if you explicitly want zellij to
   keep consuming mouse events
-- `Can't connect to AeroSpace server`: start app with `open -a AeroSpace`
 - `"isn't a vault in this account"`: update `op://...` refs in
   `config.toml` to your actual vault/item/field names
 - `Claude native installer mismatch`: if you see messages like

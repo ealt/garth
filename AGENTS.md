@@ -238,9 +238,9 @@ Terminal.app → current shell), `garth_zellij_kill_session`.
 
 **Dependencies:** `lib/common.sh`, `lib/container.sh`.
 
-### lib/workspace.sh (631 lines)
+### lib/workspace.sh
 
-macOS GUI integrations: Cursor, browser launch helpers, AeroSpace workspace management.
+macOS GUI integrations: Cursor and browser launch helpers.
 
 **Key functions:** `garth_cursor_binary_path` (find Cursor.app),
 `garth_ensure_gui_python_shim` (create Python symlink for GUI apps),
@@ -249,9 +249,7 @@ apps), `garth_launch_cursor` (open directory in Cursor with correct env),
 `garth_configure_cursor_terminal_bridge` (write
 `.vscode/garth-sandbox-shell.sh` + update `settings.json` so Cursor terminal
 attaches to Docker shell), `garth_launch_browser` / `garth_launch_chromium_browser` /
-`garth_launch_firefox_browser` / `garth_launch_url_only_browser`,
-`garth_aerospace_next_workspace`,
-`garth_move_windows_to_workspace`.
+`garth_launch_firefox_browser` / `garth_launch_url_only_browser`.
 
 **Dependencies:** `lib/common.sh`.
 
@@ -497,8 +495,6 @@ garth/
 ├── docs/
 │   ├── security-model.md              # Security model, controls, and tradeoffs
 │   └── github-app-setup.md            # GitHub App wiring guide
-├── templates/
-│   └── aerospace.example.toml         # AeroSpace config template
 ├── VERSION                            # Semver version string (e.g. 0.1.0)
 ├── CHANGELOG.md                       # Release history (Keep a Changelog)
 ├── install.sh                         # Curl-pipe-bash installer
