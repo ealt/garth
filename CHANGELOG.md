@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-24
+
 ### Added
 
 - Generic browser configuration via `[browser]` with `chromium`, `firefox`,
@@ -22,11 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `GARTH_CHROME_*`
 - Workspace launch docs and references now describe browser launch behavior
   generically instead of assuming Chrome-only integration
+- Existing configs that still set `defaults.workspace` now emit
+  `warning: Unknown key: defaults.workspace`; delete that key after upgrading
 
 ### Removed
 
 - `[chrome]` config support and the dead `profile_directory` field
 - `garth_launch_chrome_profile()` in favor of engine-based browser dispatch
+- AeroSpace integration has been removed entirely, including the
+  `--workspace` CLI flag, automatic workspace movement during launch, setup and
+  doctor references, and the `templates/aerospace.example.toml` template
+- `defaults.workspace` is no longer part of the config schema and
+  `GARTH_DEFAULTS_WORKSPACE` is no longer emitted by the config parser
 
 ### Fixed
 
@@ -106,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Zellij nesting protection blocking new sessions when garth is invoked from
   inside an existing Zellij pane
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-03-10
 
 ### Added
 
@@ -168,8 +177,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   macOS and reduce host app permission prompt friction
 - README now links to the dedicated security model documentation and includes
   explicit guidance for auth-refresh popup mitigation settings
-- Existing configs that still set `defaults.workspace` now emit
-  `warning: Unknown key: defaults.workspace`; delete that key after upgrading
 
 ### Security
 
@@ -189,14 +196,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   popup loops at the cost of possible degraded refresh state until manual
   re-auth
 
-### Removed
-
-- AeroSpace integration has been removed entirely, including the
-  `--workspace` CLI flag, automatic workspace movement during launch, setup and
-  doctor references, and the `templates/aerospace.example.toml` template
-- `defaults.workspace` is no longer part of the config schema and
-  `GARTH_DEFAULTS_WORKSPACE` is no longer emitted by the config parser
-
 ## [0.1.0] - 2026-03-04
 
 ### Added
@@ -207,6 +206,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[1.0.0]: https://github.com/ealt/garth/releases/tag/v1.0.0
+[0.3.4]: https://github.com/ealt/garth/releases/tag/v0.3.4
+[0.3.3]: https://github.com/ealt/garth/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ealt/garth/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ealt/garth/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ealt/garth/releases/tag/v0.3.0
