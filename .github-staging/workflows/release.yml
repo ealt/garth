@@ -42,7 +42,7 @@ jobs:
           tar -czf "garth-${VERSION}.tar.gz" \
             --transform "s,^,garth-${VERSION}/," \
             bin/garth lib/* docker/* config.example.toml \
-            templates/* VERSION LICENSE README.md CHANGELOG.md
+            VERSION LICENSE README.md CHANGELOG.md
 
       - name: Compute SHA256 checksum
         env:
