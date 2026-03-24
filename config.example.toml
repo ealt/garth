@@ -36,12 +36,20 @@ installation_strategy = "by_owner"
 installation_id_ref = ""
 installation_id_map = {}
 
-[chrome]
-# Set to "" to use your default signed-in Chrome profile.
+[browser]
+# Engine type: chromium (--user-data-dir), firefox (-profile), open (URL only), none
+engine = "chromium"
+# macOS app name used by `open -na`.
+#   chromium engine: "Google Chrome", "Brave Browser", "Microsoft Edge", "Chromium"
+#   firefox engine:  "Firefox", "Firefox Developer Edition"
+#   open engine:     "Safari", "Arc", or any app that accepts a URL argument
+app = "Google Chrome"
+# Linux binary name. Leave empty to auto-detect from common names.
+# Examples: "google-chrome", "brave-browser", "firefox", "microsoft-edge"
+binary = ""
+# Per-project profile directory root. Set to "" to use default browser profile
+# (no isolation). Applies to chromium and firefox engines only.
 profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
-# Optional when profiles_dir = "": force a specific Chrome profile directory
-# (for example "Default" or "Profile 2"). Empty means auto-detect last used.
-profile_directory = ""
 
 [features]
 # Optional packages to include when building agent images.

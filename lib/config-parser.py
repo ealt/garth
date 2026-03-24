@@ -35,7 +35,7 @@ DURATION_RE = re.compile(r"^(?:[0-9]+[smh]|forever)$")
 NAME_RE = re.compile(r"[^A-Za-z0-9]")
 PACKAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
 
-ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "chrome", "features", "security", "agents"}
+ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "browser", "features", "security", "agents"}
 ALLOWED_DEFAULTS = {
     "agents",
     "sandbox",
@@ -65,7 +65,7 @@ ALLOWED_GITHUB_APP = {
     "installation_id_ref",
     "installation_id_map",
 }
-ALLOWED_CHROME = {"profiles_dir", "profile_directory"}
+ALLOWED_BROWSER = {"engine", "app", "binary", "profiles_dir"}
 ALLOWED_FEATURES = {
     "packages",
     "mounts",
@@ -86,6 +86,29 @@ ALLOWED_AGENT = {
     "permissive_args",
     "api_key_env",
     "api_key_ref",
+}
+BROWSER_ENGINES = {"chromium", "firefox", "open", "none"}
+ENGINE_DEFAULTS = {
+    "chromium": {
+        "app": "Google Chrome",
+        "binary": "",
+        "profiles_dir": "~/Library/Application Support/Chrome-ProjectProfiles",
+    },
+    "firefox": {
+        "app": "Firefox",
+        "binary": "",
+        "profiles_dir": "~/Library/Application Support/Firefox-ProjectProfiles",
+    },
+    "open": {
+        "app": "",
+        "binary": "",
+        "profiles_dir": "",
+    },
+    "none": {
+        "app": "",
+        "binary": "",
+        "profiles_dir": "",
+    },
 }
 
 
@@ -255,24 +278,39 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
 
     norm["github_app"] = github_app
 
-    chrome_raw = raw.get("chrome", {})
-    if not isinstance(chrome_raw, dict):
-        out.error("chrome must be a table")
-        chrome_raw = {}
-    warn_unknown_keys(chrome_raw, ALLOWED_CHROME, "chrome.", out)
+    if "chrome" in raw:
+        out.error('[chrome] is no longer supported; migrate to [browser] with engine = "chromium". See config.example.toml')
 
-    chrome = {
-        "profiles_dir": chrome_raw.get(
-            "profiles_dir",
-            "~/Library/Application Support/Chrome-ProjectProfiles",
-        ),
-        "profile_directory": chrome_raw.get("profile_directory", ""),
+    browser_raw = raw.get("browser", {})
+    if not isinstance(browser_raw, dict):
+        out.error("browser must be a table")
+        browser_raw = {}
+    warn_unknown_keys(browser_raw, ALLOWED_BROWSER, "browser.", out)
+
+    engine = browser_raw.get("engine", "chromium")
+    if not isinstance(engine, str):
+        out.error("browser.engine must be a string")
+        engine = "chromium"
+    if engine not in BROWSER_ENGINES:
+        out.error("browser.engine must be one of: chromium, firefox, open, none")
+        engine = "chromium"
+
+    engine_defaults = ENGINE_DEFAULTS[engine]
+    browser = {
+        "engine": engine,
+        "app": browser_raw.get("app", engine_defaults["app"]),
+        "binary": browser_raw.get("binary", engine_defaults["binary"]),
+        "profiles_dir": browser_raw.get("profiles_dir", engine_defaults["profiles_dir"]),
     }
-    if not isinstance(chrome["profiles_dir"], str):
-        out.error("chrome.profiles_dir must be a string")
-    if not isinstance(chrome["profile_directory"], str):
-        out.error("chrome.profile_directory must be a string")
-    norm["chrome"] = chrome
+    if not isinstance(browser["app"], str):
+        out.error("browser.app must be a string")
+    if not isinstance(browser["binary"], str):
+        out.error("browser.binary must be a string")
+    if not isinstance(browser["profiles_dir"], str):
+        out.error("browser.profiles_dir must be a string")
+    if browser["engine"] in {"open", "none"} and isinstance(browser["profiles_dir"], str) and browser["profiles_dir"]:
+        out.warn(f"browser.profiles_dir is ignored when browser.engine={browser['engine']}")
+    norm["browser"] = browser
 
     features_raw = raw.get("features", {})
     if not isinstance(features_raw, dict):
@@ -469,7 +507,7 @@ def emit_env(config: dict[str, Any]) -> str:
     defaults = config["defaults"]
     token = config["token_refresh"]
     gh = config["github_app"]
-    chrome = config["chrome"]
+    browser = config["browser"]
     features = config["features"]
     security = config["security"]
     agents = config["agents"]
@@ -500,8 +538,10 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_GITHUB_APP_INSTALLATION_ID_REF", gh["installation_id_ref"])
     put("GARTH_GITHUB_APP_INSTALLATION_ID_MAP_JSON", gh["installation_id_map"])
 
-    put("GARTH_CHROME_PROFILES_DIR", chrome["profiles_dir"])
-    put("GARTH_CHROME_PROFILE_DIRECTORY", chrome["profile_directory"])
+    put("GARTH_BROWSER_ENGINE", browser["engine"])
+    put("GARTH_BROWSER_APP", browser["app"])
+    put("GARTH_BROWSER_BINARY", browser["binary"])
+    put("GARTH_BROWSER_PROFILES_DIR", browser["profiles_dir"])
     put("GARTH_FEATURES_PACKAGES_JSON", features["packages"])
     put("GARTH_FEATURES_MOUNTS_JSON", features["mounts"])
 

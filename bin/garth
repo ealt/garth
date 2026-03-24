@@ -511,6 +511,13 @@ garth_launch_workspace() {
   local worktree_state="reused"
   local session_state="new"
 
+  if [[ -n "${GARTH_SKIP_CHROME+x}" ]]; then
+    garth_die "GARTH_SKIP_CHROME is no longer supported; use GARTH_SKIP_BROWSER=true instead" 1
+  fi
+  if [[ -n "${GARTH_CHROME_PROFILES_DIR+x}" ]]; then
+    garth_die "GARTH_CHROME_PROFILES_DIR is no longer supported; set browser.profiles_dir in config.toml instead" 1
+  fi
+
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --agents)
@@ -823,7 +830,7 @@ HELP
   profile_name=$(compute_profile_name "$repo_name" "$branch")
 
   if [[ "${GARTH_SKIP_GUI:-false}" == "true" ]]; then
-    garth_log_warn "GARTH_SKIP_GUI=true; skipping workspace/Cursor/Chrome launch steps"
+    garth_log_warn "GARTH_SKIP_GUI=true; skipping workspace/Cursor/browser launch steps"
   else
     garth_move_windows_to_workspace "$workspace"
     if [[ "${GARTH_SKIP_CURSOR:-false}" == "true" ]]; then
@@ -832,10 +839,16 @@ HELP
       garth_configure_cursor_terminal_bridge "$abs_dir" "$sandbox"
       garth_launch_cursor "$abs_dir"
     fi
-    if [[ "${GARTH_SKIP_CHROME:-false}" == "true" ]]; then
-      garth_log_warn "GARTH_SKIP_CHROME=true; skipping Chrome launch"
+    if [[ "${GARTH_SKIP_BROWSER:-false}" == "true" ]]; then
+      garth_log_warn "GARTH_SKIP_BROWSER=true; skipping browser launch"
     else
-      garth_launch_chrome_profile "$GARTH_CHROME_PROFILES_DIR" "$profile_name" "$github_url"
+      garth_launch_browser \
+        "${GARTH_BROWSER_ENGINE:-chromium}" \
+        "${GARTH_BROWSER_APP:-Google Chrome}" \
+        "${GARTH_BROWSER_BINARY:-}" \
+        "${GARTH_BROWSER_PROFILES_DIR:-}" \
+        "$profile_name" \
+        "$github_url"
     fi
   fi
 

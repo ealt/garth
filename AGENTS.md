@@ -240,7 +240,7 @@ Terminal.app → current shell), `garth_zellij_kill_session`.
 
 ### lib/workspace.sh (446 lines)
 
-macOS GUI integrations: Cursor, Chrome profiles, AeroSpace workspace management.
+macOS GUI integrations: Cursor, browser launch helpers, AeroSpace workspace management.
 
 **Key functions:** `garth_cursor_binary_path` (find Cursor.app),
 `garth_ensure_gui_python_shim` (create Python symlink for GUI apps),
@@ -248,8 +248,9 @@ macOS GUI integrations: Cursor, Chrome profiles, AeroSpace workspace management.
 apps), `garth_launch_cursor` (open directory in Cursor with correct env),
 `garth_configure_cursor_terminal_bridge` (write
 `.vscode/garth-sandbox-shell.sh` + update `settings.json` so Cursor terminal
-attaches to Docker shell), `garth_launch_chrome_profile` (isolated
-`--user-data-dir`), `garth_aerospace_next_workspace`,
+attaches to Docker shell), `garth_launch_browser` / `garth_launch_chromium_browser` /
+`garth_launch_firefox_browser` / `garth_launch_url_only_browser`,
+`garth_aerospace_next_workspace`,
 `garth_move_windows_to_workspace`.
 
 **Dependencies:** `lib/common.sh`.
@@ -265,7 +266,8 @@ TOML validation and env-var emission using Python stdlib only (`tomllib` from
 
 **Key functions:** `load_toml`, `validate_duration`, `require_str`,
 `warn_unknown_keys`, `normalize_config` (walk config tree, apply defaults,
-collect errors), `emit_env` (serialize to `KEY='value'` via `shlex.quote`).
+validate `[browser]` and other sections, collect errors), `emit_env`
+(serialize to `KEY='value'` via `shlex.quote`).
 
 ## Security Model
 

@@ -11,6 +11,9 @@ REPO="$TMP_ROOT/repo"
 ORIGIN_BARE="$TMP_ROOT/origin.git"
 UPSTREAM_BARE="$TMP_ROOT/upstream.git"
 STATE_HOME="$TMP_ROOT/state"
+BROWSER_BIN_DIR="$TMP_ROOT/browser-bin"
+BROWSER_CFG="$TMP_ROOT/browser-config.toml"
+mkdir -p "$BROWSER_BIN_DIR"
 
 git init -b main "$REPO" >/dev/null
 git -C "$REPO" config user.email "test@example.com"
@@ -36,6 +39,12 @@ git -C "$REPO" branch -D topic >/dev/null
 # Keep refs/remotes from local pushes, but use GitHub-shaped remotes for dry-run launch summary.
 git -C "$REPO" remote set-url origin "git@github.com:foo/bar.git"
 git -C "$REPO" remote set-url upstream "git@github.com:foo/baz.git"
+
+cat > "$BROWSER_BIN_DIR/chromium-browser" << 'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$BROWSER_BIN_DIR/chromium-browser"
 
 GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true XDG_STATE_HOME="$STATE_HOME" \
   "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run >/dev/null
@@ -89,5 +98,34 @@ INCOMPATIBLE_FLAGS_RC=$?
 set -e
 [[ $INCOMPATIBLE_FLAGS_RC -ne 0 ]]
 echo "$INCOMPATIBLE_FLAGS_OUT" | grep -q "require --dir"
+
+set +e
+DEPRECATED_SKIP_OUT="$(GARTH_SKIP_CHROME=true GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" XDG_STATE_HOME="$STATE_HOME" "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run 2>&1)"
+DEPRECATED_SKIP_RC=$?
+set -e
+[[ $DEPRECATED_SKIP_RC -ne 0 ]]
+echo "$DEPRECATED_SKIP_OUT" | grep -q "GARTH_SKIP_CHROME is no longer supported"
+
+set +e
+DEPRECATED_PROFILE_OUT="$(GARTH_CHROME_PROFILES_DIR=/tmp/browser-profiles GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" XDG_STATE_HOME="$STATE_HOME" "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run 2>&1)"
+DEPRECATED_PROFILE_RC=$?
+set -e
+[[ $DEPRECATED_PROFILE_RC -ne 0 ]]
+echo "$DEPRECATED_PROFILE_OUT" | grep -q "GARTH_CHROME_PROFILES_DIR is no longer supported"
+
+SKIP_BROWSER_OUT="$(GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_BROWSER=true GARTH_SKIP_CURSOR=true XDG_STATE_HOME="$STATE_HOME" "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run 2>&1)"
+echo "$SKIP_BROWSER_OUT" | grep -q "GARTH_SKIP_BROWSER=true; skipping browser launch"
+
+cp "$GARTH_ROOT/config.example.toml" "$BROWSER_CFG"
+perl -0pi -e 's/app = "Google Chrome"/app = "Brave Browser"/' "$BROWSER_CFG"
+perl -0pi -e 's/binary = ""/binary = "chromium-browser"/' "$BROWSER_CFG"
+perl -0pi -e 's#profiles_dir = ".*"#profiles_dir = ""#' "$BROWSER_CFG"
+
+BROWSER_OUT="$(PATH="$BROWSER_BIN_DIR:$PATH" GARTH_CONFIG_PATH="$BROWSER_CFG" GARTH_SKIP_CURSOR=true XDG_STATE_HOME="$STATE_HOME" "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run 2>&1)"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  echo "$BROWSER_OUT" | grep -q '\[dry-run\] open -a Brave Browser '
+else
+  echo "$BROWSER_OUT" | grep -q '\[dry-run\] chromium-browser https://github.com/'
+fi
 
 echo "cli_open_smoke: ok"

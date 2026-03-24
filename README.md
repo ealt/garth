@@ -35,7 +35,7 @@ space surrounded by the structure that protects it.
 Codex means juggling branches, worktrees, terminal sessions, containers, editor
 windows, and browser tabs. `garth` treats all of that as a single operation:
 pick a task, get a workspace — complete with Cursor pointed at the worktree,
-a Chrome window open to the GitHub repo, and agents ready in their panes.
+a browser window open to the GitHub repo, and agents ready in their panes.
 Resume it later, or tear it down. `garth ps` shows everything at a glance.
 
 **Sandboxing unlocks autonomy.** Agents are most productive when they can run
@@ -106,7 +106,7 @@ garth up .                         # interactive launcher
 
 ### Workspace lifecycle
 - One command to create a branch, worktree, containers, and terminal session
-- Launches Cursor pointed at the worktree, Chrome open to the PR page, branch
+- Launches Cursor pointed at the worktree, browser open to the PR page, branch
   tree, or repo (context-aware)
 - Resume or reattach to existing workspaces without recreating anything
 - Interactive wizard or fully explicit flags — your choice
@@ -165,7 +165,7 @@ macOS Python note:
 Optional:
 
 - `Cursor` (macOS app launcher)
-- `Google Chrome` (profile-per-project launcher)
+- A supported browser app such as `Google Chrome` or `Firefox`
 - `aerospace` (workspace movement)
 
 ## OS Support
@@ -179,15 +179,15 @@ macOS-only GUI helpers.
   `garth new`, `garth open`, `garth up`, `garth ps`, session state management,
   Docker sandboxing, token refresh, and Zellij layout/session startup.
 - macOS-only integrations:
-  Cursor auto-launch, Chrome profile/window launch, AeroSpace workspace
+  Cursor auto-launch, browser profile/window launch, AeroSpace workspace
   placement, and the `launchctl` GUI PATH/Python setup.
 - Linux behavior:
   unsupported GUI integrations are skipped with warnings, and Zellij falls back
   to launching in the current shell instead of using macOS terminal-app
   launchers.
 - Config note:
-  the default `chrome.profiles_dir` in `config.example.toml` uses a macOS
-  path. That setting only matters if you enable Chrome launching on macOS.
+  the default `browser.profiles_dir` in `config.example.toml` uses a macOS
+  path. That setting only matters if you enable isolated browser launches.
 
 ## Setup
 
@@ -224,9 +224,9 @@ image-refresh cron job.
 
 Debug launch toggles (env vars):
 
-- `GARTH_SKIP_GUI=true`: skip workspace move + Cursor + Chrome launch
+- `GARTH_SKIP_GUI=true`: skip workspace move + Cursor + browser launch
 - `GARTH_SKIP_CURSOR=true`: skip Cursor setup/launch only
-- `GARTH_SKIP_CHROME=true`: skip Chrome launch only
+- `GARTH_SKIP_BROWSER=true`: skip browser launch only
 - `GARTH_SKIP_GUI_PATH_SET=true`: skip macOS GUI PATH update (`launchctl setenv PATH ...`)
 - `GARTH_TRACE_PYTHON=true`: log which Python runtime garth is using
 
@@ -275,18 +275,24 @@ Key sections:
   optional `auth_passthrough`
 - `[token_refresh]`: lead time, retry window (`0m..forever`), backoff behavior, optional background GitHub App secret caching
 - `[github_app]`: 1Password refs and installation selection strategy
-- `[chrome]`: `profiles_dir` and optional `profile_directory` for Chrome launches
+- `[browser]`: `engine`, `app`, `binary`, and `profiles_dir` for browser launches
 - `[features]`: optional packages and host mounts for agent images
 - `[security]`: protected read-only worktree paths, seccomp profile path, and auth passthrough mount modes (`ro|rw`)
 - `[agents.<name>]`: command + safe/permissive args + API key env name, plus optional API key ref
 
 Validation is strict for known fields and warning-only for unknown fields.
 
-Chrome note:
+Upgrade note:
 
-- set `chrome.profiles_dir = ""` to open URLs in your default signed-in profile
-- set `chrome.profile_directory` (for example `"Default"`) to pin a specific
-  Chrome profile when opening a new window
+- `[chrome]` is no longer supported; migrate to `[browser]` with `engine = "chromium"`
+- `GARTH_SKIP_CHROME` is no longer supported; use `GARTH_SKIP_BROWSER=true`
+
+Browser note:
+
+- `browser.engine = "chromium"` supports apps like `Google Chrome`, `Brave Browser`, `Microsoft Edge`, and `Chromium`
+- `browser.engine = "firefox"` supports Firefox-style `-profile` launches
+- `browser.engine = "open"` opens the URL without profile isolation
+- set `browser.profiles_dir = ""` to open URLs in your default browser profile
 
 Terminal launcher note:
 
