@@ -12,6 +12,7 @@ test:
 	bash tests/zellij_launcher_smoke.sh
 	bash tests/secrets_auto_signin_guard_smoke.sh
 	bash tests/session_helpers_smoke.sh
+	bash tests/cli_new_smoke.sh
 	bash tests/cli_open_smoke.sh
 	bash tests/agent_smoke.sh
 	bash tests/refresh_images_smoke.sh

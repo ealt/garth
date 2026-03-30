@@ -376,10 +376,13 @@ Token refresh note:
 ```bash
 garth new . feature/auth                    # branch from default branch
 garth new . hotfix-login --base release/2.1 # branch from a specific ref
+garth new . feature/offline --no-fetch      # keep the local default branch as-is
 ```
 
 Creates a new branch, worktree, Docker containers, and Zellij session — all
-derived from the branch name.
+derived from the branch name. When you do not pass `--base`, `garth new`
+fetches `origin` first and branches from the latest remote-tracking default
+branch when available. Use `--no-fetch` to opt out.
 
 ### Open an existing branch
 
