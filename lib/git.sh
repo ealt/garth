@@ -70,6 +70,25 @@ garth_git_default_branch() {
   garth_git_current_branch "$repo_root"
 }
 
+garth_git_fetch_and_resolve_default_base() {
+  local repo_root="$1"
+  local default_branch
+  default_branch=$(garth_git_default_branch "$repo_root")
+
+  if ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
+    echo "$default_branch"
+    return 0
+  fi
+
+  git -C "$repo_root" fetch origin --quiet 2>/dev/null || true
+
+  if git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$default_branch"; then
+    echo "origin/$default_branch"
+  else
+    echo "$default_branch"
+  fi
+}
+
 # Supports:
 #   git@github.com:owner/repo.git
 #   https://github.com/owner/repo.git

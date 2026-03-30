@@ -24,6 +24,7 @@ development workflow. See also:
 
 - `garth new . feature/branch` — create branch + worktree + session
 - `garth new . feature/branch --base origin/main` — with explicit base ref
+- `garth new . feature/branch --no-fetch` — skip syncing the implicit default base
 - `garth open <id>` — resume a session by ID
 - `garth open -d .` — open default branch (reuse session if exists)
 - `garth open -d . feature/branch` — open existing branch
@@ -54,6 +55,7 @@ development workflow. See also:
 - `bash tests/zellij_launcher_smoke.sh`
 - `bash tests/secrets_auto_signin_guard_smoke.sh`
 - `bash tests/session_helpers_smoke.sh`
+- `bash tests/cli_new_smoke.sh`
 - `bash tests/cli_open_smoke.sh`
 - `bash tests/refresh_images_smoke.sh`
 - `bash tests/github_app_override_smoke.sh`
@@ -156,6 +158,8 @@ session-name generation, worktree management, and default branch detection.
 `garth_git_https_url_from_remote`, `garth_git_session_name` (deterministic
 `garth-<repo>-<branch-slug>`, capped at 80 chars), `garth_git_default_branch`
 (config → `origin/HEAD` → `main` → `master` fallback),
+`garth_git_fetch_and_resolve_default_base` (fetch origin, then prefer
+`origin/<default>` for implicit new-branch bases),
 `garth_git_worktree_path`, `garth_git_create_worktree`,
 `garth_git_list_worktrees`, `garth_git_find_worktree_for_branch` (look up
 existing worktree by branch name).
@@ -488,6 +492,7 @@ garth/
 │   ├── zellij_launcher_smoke.sh       # Zellij launcher selection smoke tests
 │   ├── secrets_auto_signin_guard_smoke.sh # 1Password auto-signin guard smoke tests
 │   ├── session_helpers_smoke.sh       # Session state smoke tests
+│   ├── cli_new_smoke.sh               # CLI new command smoke tests
 │   ├── cli_open_smoke.sh              # CLI open command smoke tests
 │   ├── github_app_override_smoke.sh   # GitHub app env-override token mint smoke test
 │   ├── refresh_images_smoke.sh        # Docker refresh command smoke tests

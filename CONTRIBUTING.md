@@ -50,6 +50,7 @@ bash tests/config_parser_smoke.sh
 bash tests/git_helpers_smoke.sh
 bash tests/zellij_layout_smoke.sh
 bash tests/session_helpers_smoke.sh
+bash tests/cli_new_smoke.sh
 bash tests/cli_open_smoke.sh
 bash tests/refresh_images_smoke.sh
 bash tests/github_context_url_smoke.sh

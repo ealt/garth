@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-30
+
+### Added
+
+- `--no-fetch` for `garth new` and `garth up --new-branch` to keep the local
+  default branch as-is when creating a new branch
+- New `tests/cli_new_smoke.sh` coverage for `cmd_new` / `cmd_up --new-branch`
+  base-selection behavior
+
+### Changed
+
+- `garth new` now fetches `origin` before branching from the implicit default
+  base and prefers the updated remote-tracking default branch when available
+
 ## [1.0.1] - 2026-03-24
 
 ### Fixed
@@ -214,6 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[1.1.0]: https://github.com/ealt/garth/releases/tag/v1.1.0
 [1.0.1]: https://github.com/ealt/garth/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ealt/garth/releases/tag/v1.0.0
 [0.3.4]: https://github.com/ealt/garth/releases/tag/v0.3.4

@@ -1058,6 +1058,7 @@ cmd_new() {
   local branch=""
   local base_ref=""
   local no_worktree=false
+  local no_fetch=false
   local -a forward=()
 
   while [[ $# -gt 0 ]]; do
@@ -1068,6 +1069,10 @@ cmd_new() {
         ;;
       --no-worktree)
         no_worktree=true
+        shift
+        ;;
+      --no-fetch)
+        no_fetch=true
         shift
         ;;
       --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--safety)
@@ -1092,6 +1097,7 @@ Arguments:
 Options:
   --base <ref>            Base ref for the new branch (default: repo default branch)
   --no-worktree           Create branch in-place instead of a worktree
+  --no-fetch              Skip syncing the implicit default base from origin
   --agents <a,b>          Comma-separated agents (overrides config)
   --auth-passthrough <a,b>
                           Docker auth passthrough for selected agents
@@ -1136,7 +1142,16 @@ HELP
     garth_die "Branch already exists: $branch (use 'garth open -d $dir $branch')" 1
   fi
 
-  base_ref="${base_ref:-$(garth_git_default_branch "$repo_root")}"
+  if [[ -z "$base_ref" ]]; then
+    if [[ "$no_fetch" != "true" ]]; then
+      base_ref=$(garth_git_fetch_and_resolve_default_base "$repo_root")
+      if [[ "$base_ref" == origin/* ]]; then
+        garth_log_info "Base: $base_ref (synced from origin)"
+      fi
+    else
+      base_ref=$(garth_git_default_branch "$repo_root")
+    fi
+  fi
   if ! git -C "$repo_root" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
     echo "Base ref '$base_ref' was not found. Available branches:" >&2
     git -C "$repo_root" for-each-ref --format='  - %(refname:short)' refs/heads refs/remotes >&2 || true
@@ -1443,6 +1458,7 @@ cmd_up() {
   local new_worktree=false
   local new_session=false
   local no_worktree=false
+  local no_fetch=false
   local -a forward=()
 
   while [[ $# -gt 0 ]]; do
@@ -1499,6 +1515,10 @@ cmd_up() {
         no_worktree=true
         shift
         ;;
+      --no-fetch)
+        no_fetch=true
+        shift
+        ;;
       --dry-run|--yes|-y|--agents|--auth-passthrough|--sandbox|--no-sandbox|--network|--safety)
         forward+=("$1")
         if [[ "$1" == "--dry-run" || "$1" == "--no-sandbox" || "$1" == "--yes" || "$1" == "-y" ]]; then
@@ -1523,6 +1543,7 @@ Branch selection (wizard step 1):
   -b, --branch <name>     Use an existing branch (skips step 1)
   --new-branch <name>     Create a new branch (skips step 1)
   --base <ref>            Base ref for --new-branch (default: repo default branch)
+  --no-fetch              Skip syncing the implicit default base from origin
   --remote <name>         Remote for remote-only branches (default: origin)
   --auto-branch           Use wizard default: currently checked-out branch
 
@@ -1591,6 +1612,7 @@ HELP
     local -a args=("$dir" "$new_branch")
     [[ -n "$base_ref" ]] && args+=(--base "$base_ref")
     [[ "$no_worktree" == "true" ]] && args+=(--no-worktree)
+    [[ "$no_fetch" == "true" ]] && args+=(--no-fetch)
     args+=(${forward[@]+"${forward[@]}"})
     cmd_new "${args[@]}"
     return 0
@@ -1699,6 +1721,7 @@ HELP
     local -a args=("$dir" "$new_branch")
     [[ -n "$base_ref" ]] && args+=(--base "$base_ref")
     [[ "$no_worktree" == "true" ]] && args+=(--no-worktree)
+    [[ "$no_fetch" == "true" ]] && args+=(--no-fetch)
     args+=(${forward[@]+"${forward[@]}"})
     cmd_new "${args[@]}"
     return 0
