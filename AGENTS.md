@@ -224,8 +224,8 @@ key), `garth_write_token_file` (atomic token write), `garth_container_name`
 `docker run` argument list), `garth_container_shell_args_lines` (shell pane
 args), `garth_docker_build_agent_image`, `garth_ensure_agent_image_ready`
 (rebuild if binary/packages missing), `garth_stop_containers_for_session`,
-`garth_features_mount_specs_lines` / `garth_features_packages_lines` (parse
-feature config).
+`garth_features_mount_specs_lines` / `garth_features_packages_lines` /
+`garth_features_npm_packages_lines` (parse feature config).
 
 **Dependencies:** `lib/common.sh`, `lib/secrets.sh`.
 

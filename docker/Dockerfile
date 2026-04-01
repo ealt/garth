@@ -1,11 +1,12 @@
 FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG GARTH_FEATURE_PACKAGES=""
+ARG GARTH_FEATURE_APT_PACKAGES=""
+ARG GARTH_FEATURE_NPM_PACKAGES=""
 
 RUN set -eux; \
   packages="bash ca-certificates curl git jq openssl python3 python3-pip gnupg"; \
-  feature_packages="${GARTH_FEATURE_PACKAGES:-}"; \
+  feature_packages="${GARTH_FEATURE_APT_PACKAGES:-}"; \
   old_ifs="$IFS"; \
   IFS=','; \
   for pkg in $feature_packages; do \
@@ -21,7 +22,7 @@ RUN set -eux; \
   rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-  feature_packages=",${GARTH_FEATURE_PACKAGES:-},"; \
+  feature_packages=",${GARTH_FEATURE_APT_PACKAGES:-},"; \
   case "$feature_packages" in \
     *,uv,*) curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh ;; \
   esac; \
@@ -47,6 +48,22 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && apt-get update \
   && apt-get install -y --no-install-recommends nodejs \
   && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+  npm_packages="${GARTH_FEATURE_NPM_PACKAGES:-}"; \
+  if [ -n "$npm_packages" ]; then \
+    old_ifs="$IFS"; \
+    IFS=','; \
+    set --; \
+    for pkg in $npm_packages; do \
+      [ -n "$pkg" ] || continue; \
+      set -- "$@" "$pkg"; \
+    done; \
+    IFS="$old_ifs"; \
+    if [ "$#" -gt 0 ]; then \
+      npm install -g "$@"; \
+    fi; \
+  fi
 
 RUN useradd -ms /bin/bash agent
 
