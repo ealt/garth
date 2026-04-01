@@ -65,7 +65,7 @@ replacements = [
         '[agents.codex]\nbase_command = "codex"\nsafe_args = ["--no-alt-screen"]\npermissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]\napi_key_env = "OPENAI_API_KEY"\n# Set to "" when relying on Codex CLI login instead of an API key.\napi_key_ref = "op://<VAULT>/OpenAI/api-key"\npackages = ["fd-find"]\nnpm_packages = ["eslint"]',
     ),
     (
-        '[agents.claude]\nbase_command = "claude"\nsafe_args = []\npermissive_args = ["--dangerously-skip-permissions"]\napi_key_env = "ANTHROPIC_API_KEY"\n# Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.\napi_key_ref = "op://<VAULT>/Anthropic/api-key"\n# Optional extra apt/npm packages for this agent image only.\npackages = []\nnpm_packages = []',
+        '[agents.claude]\nbase_command = "claude"\nsafe_args = []\npermissive_args = ["--dangerously-skip-permissions"]\napi_key_env = "ANTHROPIC_API_KEY"\n# Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.\napi_key_ref = "op://<VAULT>/Anthropic/api-key"\n# Optional extra apt/npm packages for this agent image only.\npackages = []\nnpm_packages = ["@openai/codex"]',
         '[agents.claude]\nbase_command = "claude"\nsafe_args = []\npermissive_args = ["--dangerously-skip-permissions"]\napi_key_env = "ANTHROPIC_API_KEY"\n# Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.\napi_key_ref = "op://<VAULT>/Anthropic/api-key"\n# Optional extra apt/npm packages for this agent image only.\npackages = ["shellcheck"]\nnpm_packages = ["@biomejs/biome"]',
     ),
 ]

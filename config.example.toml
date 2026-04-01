@@ -62,7 +62,11 @@ npm_packages = []
 # Each entry can be:
 # - a string path (mounted read-only at same absolute path), or
 # - a table: { host_path = "...", container_path = "...", mode = "ro|rw" }
-mounts = []
+# Mount Codex OAuth tokens so agents with @openai/codex installed can authenticate.
+# Run 'codex login' on the host first.
+mounts = [
+  { host_path = "~/.codex", container_path = "/home/agent/.codex", mode = "rw" },
+]
 
 [security]
 # Host-side paths under the worktree to overlay as read-only in containers.
@@ -91,7 +95,7 @@ api_key_env = "ANTHROPIC_API_KEY"
 api_key_ref = "op://<VAULT>/Anthropic/api-key"
 # Optional extra apt/npm packages for this agent image only.
 packages = []
-npm_packages = []
+npm_packages = ["@openai/codex"]
 
 [agents.codex]
 base_command = "codex"
