@@ -34,6 +34,7 @@ except ModuleNotFoundError:
 DURATION_RE = re.compile(r"^(?:[0-9]+[smh]|forever)$")
 NAME_RE = re.compile(r"[^A-Za-z0-9]")
 PACKAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
+NPM_PACKAGE_NAME_RE = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$")
 
 ALLOWED_TOP = {"defaults", "token_refresh", "github_app", "browser", "features", "security", "agents"}
 ALLOWED_DEFAULTS = {
@@ -67,6 +68,7 @@ ALLOWED_GITHUB_APP = {
 ALLOWED_BROWSER = {"engine", "app", "binary", "profiles_dir"}
 ALLOWED_FEATURES = {
     "packages",
+    "npm_packages",
     "mounts",
 }
 ALLOWED_SECURITY = {"protected_paths", "seccomp_profile", "auth_mount_mode"}
@@ -85,6 +87,8 @@ ALLOWED_AGENT = {
     "permissive_args",
     "api_key_env",
     "api_key_ref",
+    "packages",
+    "npm_packages",
 }
 BROWSER_ENGINES = {"chromium", "firefox", "open", "none"}
 ENGINE_DEFAULTS = {
@@ -149,6 +153,40 @@ def warn_unknown_keys(table: dict[str, Any], allowed: set[str], prefix: str, out
     for key in table:
         if key not in allowed:
             out.warn(f"Unknown key: {prefix}{key}")
+
+
+def normalize_package_list(
+    value: Any,
+    field: str,
+    out: ValidationResult,
+    *,
+    item_label: str,
+    pattern: re.Pattern[str],
+    pattern_hint: str,
+) -> list[str]:
+    items: list[str] = []
+    seen: set[str] = set()
+
+    if value is None:
+        value = []
+    if not isinstance(value, list):
+        out.error(f"{field} must be an array of {item_label}")
+        return items
+
+    for idx, item in enumerate(value):
+        item_field = f"{field}[{idx}]"
+        if not isinstance(item, str) or not item.strip():
+            out.error(f"{item_field} must be a non-empty string")
+            continue
+        normalized = item.strip().lower()
+        if not pattern.match(normalized):
+            out.error(f"{item_field} must {pattern_hint}")
+            continue
+        if normalized not in seen:
+            items.append(normalized)
+            seen.add(normalized)
+
+    return items
 
 
 def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, Any]:
@@ -316,29 +354,25 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         if key not in ALLOWED_FEATURES:
             out.error(f"Unknown key: features.{key}")
 
-    packages: list[str] = []
-    packages_seen: set[str] = set()
-    packages_raw = features_raw.get("packages")
-    if packages_raw is None:
-        packages_raw = []
-    if not isinstance(packages_raw, list):
-        out.error("features.packages must be an array of package names")
-    else:
-        for idx, item in enumerate(packages_raw):
-            field = f"features.packages[{idx}]"
-            if not isinstance(item, str) or not item.strip():
-                out.error(f"{field} must be a non-empty string")
-                continue
-            pkg = item.strip().lower()
-            if not PACKAGE_NAME_RE.match(pkg):
-                out.error(
-                    f"{field} must match {PACKAGE_NAME_RE.pattern} "
-                    "(lowercase package names only)"
-                )
-                continue
-            if pkg not in packages_seen:
-                packages.append(pkg)
-                packages_seen.add(pkg)
+    packages = normalize_package_list(
+        features_raw.get("packages"),
+        "features.packages",
+        out,
+        item_label="package names",
+        pattern=PACKAGE_NAME_RE,
+        pattern_hint=f"match {PACKAGE_NAME_RE.pattern} (lowercase package names only)",
+    )
+    npm_packages = normalize_package_list(
+        features_raw.get("npm_packages"),
+        "features.npm_packages",
+        out,
+        item_label="npm package names",
+        pattern=NPM_PACKAGE_NAME_RE,
+        pattern_hint=(
+            f"match {NPM_PACKAGE_NAME_RE.pattern} "
+            "(lowercase npm package names only, optional @scope/name)"
+        ),
+    )
 
     mounts: list[dict[str, str]] = []
     mounts_seen: set[tuple[str, str, str]] = set()
@@ -400,6 +434,7 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
 
     features = {
         "packages": packages,
+        "npm_packages": npm_packages,
         "mounts": mounts,
     }
     norm["features"] = features
@@ -463,6 +498,25 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
             "permissive_args": table.get("permissive_args", []),
             "api_key_env": table.get("api_key_env", ""),
             "api_key_ref": table.get("api_key_ref", ""),
+            "packages": normalize_package_list(
+                table.get("packages"),
+                f"agents.{name}.packages",
+                out,
+                item_label="package names",
+                pattern=PACKAGE_NAME_RE,
+                pattern_hint=f"match {PACKAGE_NAME_RE.pattern} (lowercase package names only)",
+            ),
+            "npm_packages": normalize_package_list(
+                table.get("npm_packages"),
+                f"agents.{name}.npm_packages",
+                out,
+                item_label="npm package names",
+                pattern=NPM_PACKAGE_NAME_RE,
+                pattern_hint=(
+                    f"match {NPM_PACKAGE_NAME_RE.pattern} "
+                    "(lowercase npm package names only, optional @scope/name)"
+                ),
+            ),
         }
 
         if not isinstance(agent["base_command"], str) or not agent["base_command"].strip():
@@ -538,6 +592,7 @@ def emit_env(config: dict[str, Any]) -> str:
     put("GARTH_BROWSER_BINARY", browser["binary"])
     put("GARTH_BROWSER_PROFILES_DIR", browser["profiles_dir"])
     put("GARTH_FEATURES_PACKAGES_JSON", features["packages"])
+    put("GARTH_FEATURES_NPM_PACKAGES_JSON", features["npm_packages"])
     put("GARTH_FEATURES_MOUNTS_JSON", features["mounts"])
 
     put("GARTH_SECURITY_PROTECTED_PATHS_JSON", security["protected_paths"])
@@ -557,6 +612,8 @@ def emit_env(config: dict[str, Any]) -> str:
         put(f"GARTH_AGENT_{key}_PERMISSIVE_ARGS_JSON", agent["permissive_args"])
         put(f"GARTH_AGENT_{key}_API_KEY_ENV", agent["api_key_env"])
         put(f"GARTH_AGENT_{key}_API_KEY_REF", agent["api_key_ref"])
+        put(f"GARTH_AGENT_{key}_PACKAGES_JSON", agent["packages"])
+        put(f"GARTH_AGENT_{key}_NPM_PACKAGES_JSON", agent["npm_packages"])
 
     return "\n".join(lines)
 

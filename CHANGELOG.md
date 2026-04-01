@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `features.npm_packages` config for installing extra global npm packages in
+  all selected agent images
+- `agents.<name>.packages` and `agents.<name>.npm_packages` config for
+  per-agent apt and npm image extras
+- Smoke test coverage for global and per-agent apt/npm package config in
+  `tests/config_parser_smoke.sh` and `tests/refresh_images_smoke.sh`
+
+### Changed
+
+- Docker image builds now merge global `features.*` extras with per-agent
+  `agents.<name>.*` extras and verify both apt and npm packages are present
+- Config examples and README package-install docs now describe global npm
+  extras and per-agent package overrides
+
 ## [1.1.0] - 2026-03-30
 
 ### Added

@@ -520,20 +520,82 @@ garth_features_packages_lines() {
   garth_json_array_to_lines "$packages_json" 2>/dev/null || true
 }
 
-garth_features_packages_csv() {
+garth_features_npm_packages_lines() {
+  local packages_json="${GARTH_FEATURES_NPM_PACKAGES_JSON:-[]}"
+  garth_json_array_to_lines "$packages_json" 2>/dev/null || true
+}
+
+garth_agent_extra_packages_lines() {
+  local agent="$1"
+  local packages_json
+  packages_json=$(garth_agent_field "$agent" "PACKAGES_JSON")
+  garth_json_array_to_lines "${packages_json:-[]}" 2>/dev/null || true
+}
+
+garth_agent_extra_npm_packages_lines() {
+  local agent="$1"
+  local packages_json
+  packages_json=$(garth_agent_field "$agent" "NPM_PACKAGES_JSON")
+  garth_json_array_to_lines "${packages_json:-[]}" 2>/dev/null || true
+}
+
+garth_unique_lines() {
+  local seen=$'\n'
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    case "$seen" in
+      *$'\n'"$line"$'\n'*) continue ;;
+    esac
+    printf '%s\n' "$line"
+    seen+="${line}"$'\n'
+  done
+}
+
+garth_lines_to_csv() {
   local first=true
   local out=""
-  local pkg
-  while IFS= read -r pkg; do
-    [[ -n "$pkg" ]] || continue
+  local item
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
     if [[ "$first" == "true" ]]; then
-      out="$pkg"
+      out="$item"
       first=false
     else
-      out="${out},${pkg}"
+      out="${out},${item}"
     fi
-  done < <(garth_features_packages_lines)
+  done
   printf '%s' "$out"
+}
+
+garth_agent_feature_packages_lines() {
+  local agent="$1"
+  {
+    garth_features_packages_lines
+    garth_agent_extra_packages_lines "$agent"
+  } | garth_unique_lines
+}
+
+garth_agent_feature_npm_packages_lines() {
+  local agent="$1"
+  {
+    garth_features_npm_packages_lines
+    garth_agent_extra_npm_packages_lines "$agent"
+  } | garth_unique_lines
+}
+
+garth_features_packages_csv() {
+  garth_features_packages_lines | garth_lines_to_csv
+}
+
+garth_agent_feature_packages_csv() {
+  local agent="$1"
+  garth_agent_feature_packages_lines "$agent" | garth_lines_to_csv
+}
+
+garth_agent_feature_npm_packages_csv() {
+  local agent="$1"
+  garth_agent_feature_npm_packages_lines "$agent" | garth_lines_to_csv
 }
 
 garth_container_emit_feature_mounts_lines() {
@@ -733,22 +795,38 @@ garth_docker_build_agent_image() {
   local agent="$1"
   local image_prefix="$2"
   local features_packages_csv
-  features_packages_csv="$(garth_features_packages_csv)"
+  local features_npm_packages_csv
+  features_packages_csv="$(garth_agent_feature_packages_csv "$agent")"
+  features_npm_packages_csv="$(garth_agent_feature_npm_packages_csv "$agent")"
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
     garth_require_cmd docker
   fi
-  garth_run_cmd docker build --build-arg "GARTH_FEATURE_PACKAGES=${features_packages_csv}" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+  garth_run_cmd docker build \
+    --build-arg "GARTH_FEATURE_APT_PACKAGES=${features_packages_csv}" \
+    --build-arg "GARTH_FEATURE_NPM_PACKAGES=${features_npm_packages_csv}" \
+    --target "$agent" \
+    -t "${image_prefix}-${agent}:latest" \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
 }
 
 garth_docker_refresh_agent_image() {
   local agent="$1"
   local image_prefix="$2"
   local features_packages_csv
-  features_packages_csv="$(garth_features_packages_csv)"
+  local features_npm_packages_csv
+  features_packages_csv="$(garth_agent_feature_packages_csv "$agent")"
+  features_npm_packages_csv="$(garth_agent_feature_npm_packages_csv "$agent")"
   if [[ "$GARTH_DRY_RUN" != "true" ]]; then
     garth_require_cmd docker
   fi
-  garth_run_cmd docker build --pull --no-cache --build-arg "GARTH_FEATURE_PACKAGES=${features_packages_csv}" --target "$agent" -t "${image_prefix}-${agent}:latest" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
+  garth_run_cmd docker build \
+    --pull \
+    --no-cache \
+    --build-arg "GARTH_FEATURE_APT_PACKAGES=${features_packages_csv}" \
+    --build-arg "GARTH_FEATURE_NPM_PACKAGES=${features_npm_packages_csv}" \
+    --target "$agent" \
+    -t "${image_prefix}-${agent}:latest" \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker"
 }
 
 garth_docker_image_has_binary() {
@@ -784,6 +862,19 @@ garth_docker_image_has_feature_package() {
     --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
     --entrypoint /bin/bash "$image" \
     -lc "dpkg-query -W -f='\${Status}' $(printf '%q' "$package") 2>/dev/null | grep -q 'install ok installed'"
+}
+
+garth_docker_image_has_npm_feature_package() {
+  local image="$1"
+  local package="$2"
+  garth_require_cmd docker
+
+  docker run --rm \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+    --tmpfs /home/agent:rw,exec,nosuid,size=1024m,uid=1001,gid=1001,mode=0700 \
+    --entrypoint /bin/bash "$image" \
+    -lc "npm list -g --depth=0 $(printf '%q' "$package") >/dev/null 2>&1"
 }
 
 garth_ensure_agent_image_ready() {
@@ -824,7 +915,15 @@ garth_ensure_agent_image_ready() {
       garth_log_warn "Image $image is missing configured feature package '$package_name'; rebuilding"
       rebuild=true
     fi
-  done < <(garth_features_packages_lines)
+  done < <(garth_agent_feature_packages_lines "$agent")
+
+  while IFS= read -r package_name; do
+    [[ -n "$package_name" ]] || continue
+    if ! garth_docker_image_has_npm_feature_package "$image" "$package_name"; then
+      garth_log_warn "Image $image is missing configured npm package '$package_name'; rebuilding"
+      rebuild=true
+    fi
+  done < <(garth_agent_feature_npm_packages_lines "$agent")
 
   if [[ "$rebuild" == "true" ]]; then
     garth_docker_build_agent_image "$agent" "$image_prefix" || return 1
@@ -841,7 +940,15 @@ garth_ensure_agent_image_ready() {
       garth_log_error "Image $image still missing feature package '$package_name' after rebuild"
       return 1
     fi
-  done < <(garth_features_packages_lines)
+  done < <(garth_agent_feature_packages_lines "$agent")
+
+  while IFS= read -r package_name; do
+    [[ -n "$package_name" ]] || continue
+    if ! garth_docker_image_has_npm_feature_package "$image" "$package_name"; then
+      garth_log_error "Image $image still missing npm package '$package_name' after rebuild"
+      return 1
+    fi
+  done < <(garth_agent_feature_npm_packages_lines "$agent")
 }
 
 garth_stop_containers_for_session() {

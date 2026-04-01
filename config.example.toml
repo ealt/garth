@@ -55,6 +55,9 @@ profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 # Package names are treated as apt packages, except "uv" and "bun"
 # which use their upstream installer scripts.
 packages = []
+# Optional global npm packages to install in all selected agent images.
+# Supports unscoped names ("typescript") and scoped names ("@biomejs/biome").
+npm_packages = []
 # Optional host mounts for agent containers.
 # Each entry can be:
 # - a string path (mounted read-only at same absolute path), or
@@ -86,6 +89,9 @@ permissive_args = ["--dangerously-skip-permissions"]
 api_key_env = "ANTHROPIC_API_KEY"
 # Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.
 api_key_ref = "op://<VAULT>/Anthropic/api-key"
+# Optional extra apt/npm packages for this agent image only.
+packages = []
+npm_packages = []
 
 [agents.codex]
 base_command = "codex"
@@ -94,6 +100,8 @@ permissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbo
 api_key_env = "OPENAI_API_KEY"
 # Set to "" when relying on Codex CLI login instead of an API key.
 api_key_ref = "op://<VAULT>/OpenAI/api-key"
+packages = []
+npm_packages = []
 
 [agents.opencode]
 base_command = "opencode"
@@ -101,6 +109,8 @@ safe_args = []
 permissive_args = []
 api_key_env = "OPENAI_API_KEY"
 api_key_ref = "op://<VAULT>/OpenAI/api-key"
+packages = []
+npm_packages = []
 
 [agents.gemini]
 base_command = "gemini"
@@ -108,3 +118,5 @@ safe_args = []
 permissive_args = ["--yolo"]
 api_key_env = "GOOGLE_API_KEY"
 api_key_ref = "op://<VAULT>/Google AI/api-key"
+packages = []
+npm_packages = []

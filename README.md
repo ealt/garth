@@ -351,6 +351,10 @@ Feature notes:
 
 - set `features.packages` to install optional tools in image builds
   (generic apt package names, plus special support for `uv` and `bun`)
+- set `features.npm_packages` to install optional global npm tools in all
+  selected agent images
+- set `agents.<name>.packages` and `agents.<name>.npm_packages` for per-agent
+  apt/npm extras
 - set `features.mounts` to add optional host mounts (files or directories)
 - string mount entries default to read-only and mount at the same absolute path
 - table mount entries support explicit `host_path`, optional `container_path`,
@@ -466,7 +470,8 @@ garth refresh-images --agents claude --dry-run # preview docker build command
 ```
 
 `garth refresh-images` rebuilds selected agent images with
-`docker build --pull --no-cache` and preserves configured `features.packages`.
+`docker build --pull --no-cache` and preserves configured global and per-agent
+package extras from `features.*` and `agents.<name>.*`.
 
 ### Common options
 
