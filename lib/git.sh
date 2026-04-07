@@ -194,7 +194,8 @@ garth_git_create_worktree() {
   fi
 
   git -C "$repo_root" fetch origin >/dev/null 2>&1 || true
-  git -C "$repo_root" worktree add "$path" -b "$branch" "$from_ref"
+  git -C "$repo_root" worktree add "$path" -b "$branch" "$from_ref" >/dev/null
+  git -C "$path" config push.default current
   echo "$path"
 }
 

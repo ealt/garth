@@ -79,4 +79,13 @@ GARTH_DEFAULTS_DEFAULT_BRANCH="trunk"
 [[ "$(garth_git_fetch_and_resolve_default_base "$PRIMARY_REPO")" == "origin/trunk" ]]
 unset GARTH_DEFAULTS_DEFAULT_BRANCH
 
+# --- push.default=current after worktree creation ---
+GARTH_DRY_RUN=false
+WT_PATH=$(garth_git_create_worktree "$PRIMARY_REPO" "feature/push-test" "origin/main")
+[[ "$(git -C "$WT_PATH" config --get push.default)" == "current" ]]
+PUSH_DRY="$(git -C "$WT_PATH" push --dry-run 2>&1)"
+echo "$PUSH_DRY" | grep -q "feature/push-test"
+git -C "$PRIMARY_REPO" worktree remove "$WT_PATH" --force 2>/dev/null || true
+git -C "$PRIMARY_REPO" branch -D feature/push-test 2>/dev/null || true
+
 echo "git_helpers_smoke: ok"

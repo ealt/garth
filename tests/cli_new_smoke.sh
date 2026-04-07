@@ -51,6 +51,8 @@ LATEST_MAIN="$(git -C "$PEER_REPO" rev-parse HEAD)"
 SYNC_OUT="$(cmd_new "$REPO" feature/synced 2>&1)"
 [[ "$(git -C "$REPO" rev-parse refs/heads/feature/synced)" == "$LATEST_MAIN" ]]
 echo "$SYNC_OUT" | grep -q "Base: origin/main (synced from origin)"
+WT_DIR=$(garth_git_find_worktree_for_branch "$REPO" "feature/synced")
+[[ "$(git -C "$WT_DIR" config --get push.default)" == "current" ]]
 
 git -C "$REPO" checkout -b somebranch main >/dev/null
 echo "local-base" > "$REPO/local-base.txt"

@@ -1178,6 +1178,7 @@ HELP
   target_dir=$(garth_git_worktree_path "$repo_root" "$branch")
   mkdir -p "$(dirname "$target_dir")"
   git -C "$repo_root" worktree add "$target_dir" -b "$branch" "$base_ref"
+  git -C "$target_dir" config push.default current
   garth_launch_workspace "$target_dir" \
     --session-name "$session" \
     --session-id "$session_id" \
@@ -1341,6 +1342,7 @@ HELP
     local worktree_state
     if [[ "$worktree_managed" == "true" ]]; then
       worktree_state="reused"
+      git -C "$target_dir" config push.default current
     elif [[ "$target_dir" == "$repo_root" ]]; then
       worktree_state="none"
     else
@@ -1432,6 +1434,10 @@ HELP
     git -C "$repo_root" worktree add "$target_dir" "$target_branch"
     worktree_managed="true"
     worktree_state="created"
+  fi
+
+  if [[ "$worktree_managed" == "true" && -n "${target_dir:-}" ]]; then
+    git -C "$target_dir" config push.default current
   fi
 
   garth_launch_workspace "$target_dir" \

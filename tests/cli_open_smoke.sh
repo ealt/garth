@@ -49,6 +49,13 @@ chmod +x "$BROWSER_BIN_DIR/chromium-browser"
 GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true XDG_STATE_HOME="$STATE_HOME" \
   "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run >/dev/null
 [[ "$(git -C "$REPO" for-each-ref --format='%(upstream:short)' refs/heads/topic)" == "origin/topic" ]]
+[[ "$(git -C "$REPO" config --get push.default)" == "current" ]]
+
+# Verify push.default=current is backfilled when reusing an existing worktree.
+git -C "$REPO" config --unset push.default
+GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true XDG_STATE_HOME="$STATE_HOME" \
+  "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run >/dev/null
+[[ "$(git -C "$REPO" config --get push.default)" == "current" ]]
 
 git -C "$REPO" checkout main >/dev/null
 echo "dirty" > "$REPO/uncommitted.txt"
@@ -98,6 +105,21 @@ INCOMPATIBLE_FLAGS_RC=$?
 set -e
 [[ $INCOMPATIBLE_FLAGS_RC -ne 0 ]]
 echo "$INCOMPATIBLE_FLAGS_OUT" | grep -q "require --dir"
+
+# Verify push.default=current is backfilled when resuming a managed worktree by session ID.
+TOPIC_WT=$(git -C "$REPO" worktree list --porcelain | grep "^worktree.*wt/topic$" | sed 's/^worktree //')
+MANAGED_SESSION_DIR="$STATE_HOME/garth/sessions/session-managed-wt"
+mkdir -p "$MANAGED_SESSION_DIR"
+printf '%s\n' "def456" > "$MANAGED_SESSION_DIR/id"
+printf '%s\n' "garth-repo-topic" > "$MANAGED_SESSION_DIR/session"
+printf '%s\n' "$REPO" > "$MANAGED_SESSION_DIR/repo_root"
+printf '%s\n' "$TOPIC_WT" > "$MANAGED_SESSION_DIR/worktree"
+printf '%s\n' "true" > "$MANAGED_SESSION_DIR/worktree_managed"
+printf '%s\n' "topic" > "$MANAGED_SESSION_DIR/branch"
+git -C "$REPO" config --unset push.default
+GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" GARTH_SKIP_GUI=true XDG_STATE_HOME="$STATE_HOME" \
+  "$GARTH_ROOT/bin/garth" open def --dry-run >/dev/null
+[[ "$(git -C "$REPO" config --get push.default)" == "current" ]]
 
 set +e
 DEPRECATED_SKIP_OUT="$(GARTH_SKIP_CHROME=true GARTH_CONFIG_PATH="$GARTH_ROOT/config.example.toml" XDG_STATE_HOME="$STATE_HOME" "$GARTH_ROOT/bin/garth" open --dir "$REPO" topic --dry-run 2>&1)"
