@@ -97,6 +97,16 @@ RUN printf '%s\n' \
     'fi' \
     > /etc/profile.d/garth-gh-token.sh
 
+# Defense-in-depth: warn if the .git worktree pointer file was overwritten with
+# a directory (e.g. by an agent running `git init`).  Primary protection is the
+# read-only bind mount; this is a canary for subsequent shells when the mount
+# is missing due to a regression or config override.
+RUN printf '%s\n' \
+    'if [ "${GARTH_EXPECT_GIT_FILE:-}" = "true" ] && [ -d ".git" ]; then' \
+    '  echo "garth: WARNING — .git is a directory but this is a worktree session; the worktree pointer may have been overwritten" >&2' \
+    'fi' \
+    > /etc/profile.d/garth-git-worktree-guard.sh
+
 USER agent
 WORKDIR /home/agent
 

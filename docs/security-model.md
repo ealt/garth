@@ -121,6 +121,17 @@ Protected path overlay defaults:
 - `.github`
 - `.gitmodules`
 
+Worktree handling: when `.git` is a file (worktree pointer) rather than a
+directory, it is mounted read-only to prevent agents from overwriting it (e.g.
+via `git init`). The `.git/*` sub-path overlays are skipped in this case because
+they do not exist under a worktree pointer file; non-`.git` paths (`.github`,
+`.gitmodules`) are still applied. A defense-in-depth profile.d guard script
+(`garth-git-worktree-guard.sh`) warns on shell startup if `.git` has
+unexpectedly become a directory. Note: the worktree pointer's `gitdir:` target
+is an absolute host path unreachable inside the container — git operations that
+require the git directory will not work in worktree-backed containers (this is a
+pre-existing limitation tracked separately).
+
 Optional auth passthrough:
 
 - disabled by default

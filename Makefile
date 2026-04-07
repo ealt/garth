@@ -19,5 +19,6 @@ test:
 	bash tests/github_context_url_smoke.sh
 	bash tests/github_app_override_smoke.sh
 	bash tests/token_cache_lock_smoke.sh
+	bash tests/worktree_protected_paths_smoke.sh
 
 check: lint test

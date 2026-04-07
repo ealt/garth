@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- Container agents can no longer sever worktrees by running `git init` over the
+  `.git` pointer file; worktree sessions now mount `.git` read-only and include
+  a defense-in-depth profile.d guard ([#15])
+
+### Fixed
+
+- `git push` from worktree branches no longer risks targeting `origin/main`
+  due to upstream tracking; all worktree paths (`garth new`, `garth open`,
+  and session-ID resume) now set `push.default=current` locally so pushes
+  target a remote branch matching the local branch name ([#16])
+- `garth_git_create_worktree()` no longer leaks `git worktree add` tracking
+  messages into its stdout return value when captured via command substitution
+- Protected path mounts (`.git/hooks`, `.git/config`) are now correctly skipped
+  for worktree sessions where `.git` is a file, avoiding silent mount failures
+
 ## [1.2.0] - 2026-04-01
 
 ### Added
@@ -246,6 +263,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow (GitHub Actions, triggered on VERSION change to main)
 - CHANGELOG.md
 
+[#15]: https://github.com/ealt/garth/issues/15
+[#16]: https://github.com/ealt/garth/issues/16
 [1.2.0]: https://github.com/ealt/garth/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ealt/garth/releases/tag/v1.1.0
 [1.0.1]: https://github.com/ealt/garth/releases/tag/v1.0.1

@@ -375,12 +375,31 @@ garth_container_emit_protected_path_mounts_lines() {
   local count=0
   local rel_path host_path container_path
 
+  # Worktree .git is a pointer file, not a directory.  Mount it read-only to
+  # prevent agents from overwriting it (e.g. via `git init`).  Sub-paths like
+  # .git/hooks and .git/config do not exist in worktrees, so skip them.
+  local git_is_file=false
+  if [[ -f "${worktree}/.git" ]]; then
+    echo "-v"
+    echo "${worktree}/.git:${sandbox_workdir}/.git:ro"
+    count=$((count + 1))
+    git_is_file=true
+  fi
+
   while IFS= read -r rel_path; do
     [[ -n "$rel_path" ]] || continue
     rel_path="${rel_path#./}"
     if [[ "$rel_path" == /* ]]; then
       garth_log_warn "Ignoring absolute protected path outside worktree scope: $rel_path"
       continue
+    fi
+
+    # When .git is a file (worktree), skip .git itself (already mounted) and
+    # any .git/* sub-paths (they don't exist under a worktree pointer file).
+    if [[ "$git_is_file" == "true" ]]; then
+      if [[ "$rel_path" == ".git" || "$rel_path" == .git/* ]]; then
+        continue
+      fi
     fi
 
     host_path="${worktree}/${rel_path}"
@@ -700,6 +719,10 @@ garth_container_args_lines() {
   echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "--env"
   echo "PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  if [[ -f "${worktree}/.git" ]]; then
+    echo "--env"
+    echo "GARTH_EXPECT_GIT_FILE=true"
+  fi
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"
@@ -775,6 +798,10 @@ garth_container_shell_args_lines() {
   echo "XDG_STATE_HOME=/home/agent/.local/state"
   echo "--env"
   echo "PATH=/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  if [[ -f "${worktree}/.git" ]]; then
+    echo "--env"
+    echo "GARTH_EXPECT_GIT_FILE=true"
+  fi
   echo "-w"
   echo "${sandbox_workdir}"
   echo "$image"
