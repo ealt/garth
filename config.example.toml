@@ -1,60 +1,40 @@
 [defaults]
 agents = ["claude", "codex"]
-sandbox = "docker"
-network = "bridge"
-safety_mode = "safe"
+sandbox = "docker"                     # "docker", "host"
+network = "bridge"                     # "bridge", "host", "none"
+safety_mode = "permissive"             # "safe", "permissive"
 docker_image_prefix = "garth"
-auth_passthrough = []
-default_branch = "main"
-# macOS launcher preference for opening zellij:
-# auto | current_shell | ghostty | ghostty_app | terminal
-terminal_launcher = "auto"
-# zellij mouse handling:
-# disabled forwards wheel scrolling to the host terminal instead of zellij
-# enabled keeps zellij pane-click and wheel handling
-zellij_mouse_mode = "disabled"
+auth_passthrough = ["claude", "codex"]
+terminal_launcher = "current_shell"    # "ghostty", "terminal_app", "current_shell"
+zellij_mouse_mode = "enabled"          # "enabled", "disabled"
 
 [token_refresh]
 enabled = true
 lead_time = "15m"
 failure_retry_window = "10m"
-retry_backoff = "exponential"
+retry_backoff = "exponential"   # "exponential", "fixed"
 retry_initial_interval = "5s"
 retry_max_interval = "60s"
-# Opt-in: read GitHub App secrets once when refresher starts, then reuse them
-# for background token mints to avoid repeated 1Password prompts.
-cache_github_app_secrets = false
-# If false, background refresh will never auto-run "op signin" (no popup
-# interruptions), and will mark the session degraded until you re-auth manually.
-background_auto_signin = true
+cache_github_app_secrets = true
+background_auto_signin = false
 
 [github_app]
-app_id_ref = "op://<VAULT>/GitHub App/app-id"
-private_key_ref = "op://<VAULT>/GitHub App/private-key"
-installation_strategy = "by_owner"
-installation_id_ref = ""
+app_id_ref = "op://Employee/GitHub App - Garth/app-id"
+private_key_ref = "op://Employee/GitHub App - Garth/ealt-garth.2026-02-26.private-key.pem"
+installation_strategy = "by_owner"                                                         # "single", "static_map", "by_owner"
+installation_id_ref = "op://Employee/GitHub App - Garth/installation-id"
 installation_id_map = {}
 
 [browser]
-# Engine type: chromium (--user-data-dir), firefox (-profile), open (URL only), none
-engine = "chromium"
-# macOS app name used by `open -na`.
-#   chromium engine: "Google Chrome", "Brave Browser", "Microsoft Edge", "Chromium"
-#   firefox engine:  "Firefox", "Firefox Developer Edition"
-#   open engine:     "Safari", "Arc", or any app that accepts a URL argument
+engine = "chromium"                                                   # "chromium", "firefox", "url_only"
 app = "Google Chrome"
-# Linux binary name. Leave empty to auto-detect from common names.
-# Examples: "google-chrome", "brave-browser", "firefox", "microsoft-edge"
-binary = ""
-# Per-project profile directory root. Set to "" to use default browser profile
-# (no isolation). Applies to chromium and firefox engines only.
 profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 
 [features]
 # Optional packages to include when building agent images.
 # Package names are treated as apt packages, except "uv" and "bun"
 # which use their upstream installer scripts.
-packages = []
+packages = ["neovim", "uv", "bun", "shellcheck"]
 # Optional global npm packages to install in all selected agent images.
 # Supports unscoped names ("typescript") and scoped names ("@biomejs/biome").
 npm_packages = []
@@ -66,6 +46,7 @@ npm_packages = []
 # Run 'codex login' on the host first.
 mounts = [
   { host_path = "~/.codex", container_path = "/home/agent/.codex", mode = "rw" },
+  { host_path = "~/.config/nvim", container_path = "/home/agent/.config/nvim", mode = "ro" },
 ]
 
 [security]
@@ -85,25 +66,24 @@ claude_config = "rw"
 claude_state = "rw"
 claude_share = "ro"
 claude_cache = "rw"
+packages = []
+npm_packages = []
 
 [agents.claude]
 base_command = "claude"
 safe_args = []
 permissive_args = ["--dangerously-skip-permissions"]
 api_key_env = "ANTHROPIC_API_KEY"
-# Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.
-api_key_ref = "op://<VAULT>/Anthropic/api-key"
-# Optional extra apt/npm packages for this agent image only.
+api_key_ref = "" # e.g. op://<VAULT>/Anthropic/api-key (Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none)
 packages = []
 npm_packages = ["@openai/codex"]
 
 [agents.codex]
 base_command = "codex"
-safe_args = ["--no-alt-screen"]
-permissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]
+safe_args = []
+permissive_args = ["--dangerously-bypass-approvals-and-sandbox"]
 api_key_env = "OPENAI_API_KEY"
-# Set to "" when relying on Codex CLI login instead of an API key.
-api_key_ref = "op://<VAULT>/OpenAI/api-key"
+api_key_ref = ""
 packages = []
 npm_packages = []
 
@@ -112,7 +92,7 @@ base_command = "opencode"
 safe_args = []
 permissive_args = []
 api_key_env = "OPENAI_API_KEY"
-api_key_ref = "op://<VAULT>/OpenAI/api-key"
+api_key_ref = ""
 packages = []
 npm_packages = []
 
@@ -121,6 +101,6 @@ base_command = "gemini"
 safe_args = []
 permissive_args = ["--yolo"]
 api_key_env = "GOOGLE_API_KEY"
-api_key_ref = "op://<VAULT>/Google AI/api-key"
+api_key_ref = ""
 packages = []
 npm_packages = []
