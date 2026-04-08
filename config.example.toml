@@ -28,6 +28,7 @@ installation_id_map = {}
 [browser]
 engine = "chromium"                                                   # "chromium", "firefox", "open", "none"
 app = "Google Chrome"
+binary = ""
 profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 
 [features]
