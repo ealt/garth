@@ -1,11 +1,11 @@
 [defaults]
 agents = ["claude", "codex"]
-sandbox = "docker"                     # "docker", "host"
-network = "bridge"                     # "bridge", "host", "none"
+sandbox = "docker"                     # "docker", "none"
+network = "bridge"                     # "bridge", "none"
 safety_mode = "permissive"             # "safe", "permissive"
 docker_image_prefix = "garth"
 auth_passthrough = ["claude", "codex"]
-terminal_launcher = "current_shell"    # "ghostty", "terminal_app", "current_shell"
+terminal_launcher = "auto"             # "auto", "current_shell", "ghostty", "ghostty_app", "terminal"
 zellij_mouse_mode = "enabled"          # "enabled", "disabled"
 
 [token_refresh]
@@ -19,14 +19,14 @@ cache_github_app_secrets = true
 background_auto_signin = false
 
 [github_app]
-app_id_ref = "op://Employee/GitHub App - Garth/app-id"
-private_key_ref = "op://Employee/GitHub App - Garth/ealt-garth.2026-02-26.private-key.pem"
-installation_strategy = "by_owner"                                                         # "single", "static_map", "by_owner"
-installation_id_ref = "op://Employee/GitHub App - Garth/installation-id"
+app_id_ref = "op://<VAULT>/GitHub App/app-id"
+private_key_ref = "op://<VAULT>/GitHub App/private-key"
+installation_strategy = "by_owner"                       # "single", "static_map", "by_owner"
+installation_id_ref = "op://<VAULT>/GitHub App/installation-id"
 installation_id_map = {}
 
 [browser]
-engine = "chromium"                                                   # "chromium", "firefox", "url_only"
+engine = "chromium"                                                   # "chromium", "firefox", "open", "none"
 app = "Google Chrome"
 profiles_dir = "~/Library/Application Support/Chrome-ProjectProfiles"
 
@@ -66,15 +66,14 @@ claude_config = "rw"
 claude_state = "rw"
 claude_share = "ro"
 claude_cache = "rw"
-packages = []
-npm_packages = []
 
 [agents.claude]
 base_command = "claude"
 safe_args = []
 permissive_args = ["--dangerously-skip-permissions"]
 api_key_env = "ANTHROPIC_API_KEY"
-api_key_ref = "" # e.g. op://<VAULT>/Anthropic/api-key (Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none)
+# Optional when using local CLI auth via defaults.auth_passthrough or sandbox=none.
+api_key_ref = ""
 packages = []
 npm_packages = ["@openai/codex"]
 

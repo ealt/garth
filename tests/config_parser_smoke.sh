@@ -43,7 +43,6 @@ fi
 grep -q "Unknown key: features.foo" "$TMP_ERR"
 
 cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
-perl -0pi -e 's/api_key_ref = "op:\/\/<VAULT>\/OpenAI\/api-key"/api_key_ref = ""/' "$TMP_CFG"
 "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG"
 ENV_OUT=$("$GARTH_ROOT/lib/config-parser.py" env "$TMP_CFG")
 printf '%s\n' "$ENV_OUT" | grep -q "^GARTH_AGENT_CODEX_API_KEY_REF=''\$"
@@ -58,12 +57,12 @@ text = path.read_text()
 
 replacements = [
     (
-        'packages = []\n# Optional global npm packages to install in all selected agent images.\n# Supports unscoped names ("typescript") and scoped names ("@biomejs/biome").\nnpm_packages = []',
+        'packages = ["neovim", "uv", "bun", "shellcheck"]\n# Optional global npm packages to install in all selected agent images.\n# Supports unscoped names ("typescript") and scoped names ("@biomejs/biome").\nnpm_packages = []',
         'packages = ["ripgrep"]\n# Optional global npm packages to install in all selected agent images.\n# Supports unscoped names ("typescript") and scoped names ("@biomejs/biome").\nnpm_packages = ["typescript", "@biomejs/biome"]',
     ),
     (
-        '[agents.codex]\nbase_command = "codex"\nsafe_args = ["--no-alt-screen"]\npermissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]\napi_key_env = "OPENAI_API_KEY"\n# Set to "" when relying on Codex CLI login instead of an API key.\napi_key_ref = "op://<VAULT>/OpenAI/api-key"\npackages = []\nnpm_packages = []',
-        '[agents.codex]\nbase_command = "codex"\nsafe_args = ["--no-alt-screen"]\npermissive_args = ["--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]\napi_key_env = "OPENAI_API_KEY"\n# Set to "" when relying on Codex CLI login instead of an API key.\napi_key_ref = "op://<VAULT>/OpenAI/api-key"\npackages = ["fd-find"]\nnpm_packages = ["eslint"]',
+        '[agents.codex]\nbase_command = "codex"\nsafe_args = []\npermissive_args = ["--dangerously-bypass-approvals-and-sandbox"]\napi_key_env = "OPENAI_API_KEY"\napi_key_ref = ""\npackages = []\nnpm_packages = []',
+        '[agents.codex]\nbase_command = "codex"\nsafe_args = []\npermissive_args = ["--dangerously-bypass-approvals-and-sandbox"]\napi_key_env = "OPENAI_API_KEY"\napi_key_ref = ""\npackages = ["fd-find"]\nnpm_packages = ["eslint"]',
     ),
 ]
 
@@ -108,5 +107,61 @@ cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
 perl -0pi -e 's/engine = "chromium"/engine = "none"/' "$TMP_CFG"
 "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"
 grep -q 'browser.profiles_dir is ignored when browser.engine=none' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/safety_mode = "permissive"/safety_mode = "yolo"/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid safety_mode validation to fail"
+  exit 1
+fi
+grep -q 'defaults.safety_mode must be one of: safe, permissive' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/auth_passthrough = \["claude", "codex"\]/auth_passthrough = ["claude", "bogus"]/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid auth_passthrough validation to fail"
+  exit 1
+fi
+grep -q 'defaults.auth_passthrough references missing agents.bogus' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/terminal_launcher = "auto"/terminal_launcher = "tmux"/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid terminal_launcher validation to fail"
+  exit 1
+fi
+grep -q 'defaults.terminal_launcher must be one of' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/zellij_mouse_mode = "enabled"/zellij_mouse_mode = "always"/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid zellij_mouse_mode validation to fail"
+  exit 1
+fi
+grep -q 'defaults.zellij_mouse_mode must be one of: enabled, disabled' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/sandbox = "docker"/sandbox = "host"/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid sandbox validation to fail"
+  exit 1
+fi
+grep -q 'defaults.sandbox must be one of: docker, none' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/network = "bridge"/network = "host"/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid network validation to fail"
+  exit 1
+fi
+grep -q 'defaults.network must be one of: bridge, none' "$TMP_ERR"
+
+cp "$GARTH_ROOT/config.example.toml" "$TMP_CFG"
+perl -pi -e 's/installation_strategy = "by_owner"/installation_strategy = "auto"/' "$TMP_CFG"
+if "$GARTH_ROOT/lib/config-parser.py" validate "$TMP_CFG" > /dev/null 2> "$TMP_ERR"; then
+  echo "expected invalid installation_strategy validation to fail"
+  exit 1
+fi
+grep -q 'github_app.installation_strategy must be one of' "$TMP_ERR"
 
 echo "config_parser_smoke: ok"

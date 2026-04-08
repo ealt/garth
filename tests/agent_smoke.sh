@@ -30,7 +30,7 @@ OUT_DEFAULTS="$(
 )"
 
 echo "$OUT_DEFAULTS" | grep -q "Directory is not a git repository"
-echo "$OUT_DEFAULTS" | grep -q "Auto-enabled auth passthrough from local CLI auth: claude,codex"
+echo "$OUT_DEFAULTS" | grep -q "Docker auth passthrough is enabled for: claude,codex"
 echo "$OUT_DEFAULTS" | grep -E -q "\[dry-run\].*new-session-with-layout"
 
 echo "agent_smoke: ok"

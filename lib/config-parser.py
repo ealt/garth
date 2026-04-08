@@ -538,6 +538,10 @@ def normalize_config(raw: dict[str, Any], out: ValidationResult) -> dict[str, An
         if agent_name not in agents:
             out.error(f"defaults.agents references missing agents.{agent_name}")
 
+    for agent_name in defaults.get("auth_passthrough", []):
+        if agent_name not in agents:
+            out.error(f"defaults.auth_passthrough references missing agents.{agent_name}")
+
     norm["agents"] = agents
     return norm
 
